@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { env } from "../config/env";
 import { sendText, sendButtons } from "../services/whatsapp.service";
+import { registerIncomingMessage } from "../modules/contacts/contacts.service";
 
 const BUTTON_BOOK_COURT = "book_court";
 
@@ -26,12 +27,16 @@ export async function receiveMessage(req: Request, res: Response) {
   if (!msg) return; // status update, not an actual message
 
   const from = msg.from;
+  const { isNewConversation } = await registerIncomingMessage(from);
 
   if (msg.type === "interactive" && msg.interactive?.type === "button_reply") {
     await handleButtonReply(from, msg.interactive.button_reply.id);
     return;
   }
 
+  if (isNewConversation) {
+    await sendText(from, "Intro");
+  }
   await sendMainMenu(from);
 }
 

@@ -13,8 +13,8 @@ generated: { by: claude-code/sonnet-5, at: 2026-08-06T00:00:00Z }
 graph LR
   WA[WhatsApp Cloud API] -- "POST /webhook" --> API[TenisBot API]
   API -- "GET /webhook (verify)" --> WA
-  API -- "POST .../messages (sendText)" --> WA
-  API --> DB[(Postgres — Neon)]
+  API -- "POST .../messages (sendText/sendButtons)" --> WA
+  API -- "upsert on every message" --> DB[(Postgres — Neon)]
 ```
 
 - The only external integration today is the WhatsApp Cloud API, used by
@@ -23,8 +23,8 @@ graph LR
 - The database is Neon (serverless Postgres), reached over TLS via the
   singleton pool in `packages/api/src/config/db.ts` — see
   [the connection convention](../conventions/config/db-connection.md).
-  The connection is live but unused — no feature reads or writes to it
-  yet. See [Database schema](/db-schema.md).
+  First real table: `contacts`, upserted on every inbound WhatsApp message
+  to detect new conversations. See [Database schema](/db-schema.md).
 - There is a `packages/web` package in the monorepo but it currently holds
   only a static `test.html` — no frontend feature exists to document yet.
 
