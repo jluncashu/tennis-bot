@@ -1,0 +1,7 @@
+{
+  "name": "tennis-bot-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}
