@@ -3,5 +3,9 @@
   "private": true,
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@tennis-bot/api",
+    "start": "npm run start --workspace=@tennis-bot/api"
+  }
 }
