@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { env } from "../config/env";
-import { sendText } from "../services/whatsapp.service";
+import { sendText, sendButtons } from "../services/whatsapp.service";
+
+const BUTTON_BOOK_COURT = "book_court";
 
 export function verifyWebhook(req: Request, res: Response) {
   const mode = req.query["hub.mode"];
@@ -24,9 +26,26 @@ export async function receiveMessage(req: Request, res: Response) {
   if (!msg) return; // status update, not an actual message
 
   const from = msg.from;
-  const text = msg.text?.body ?? "(non-text message)";
-  console.log(`Message from ${from}: ${text}`);
 
-  // Simple echo for now, just to prove the round-trip works
-  await sendText(from, `You said: ${text}`);
+  if (msg.type === "interactive" && msg.interactive?.type === "button_reply") {
+    await handleButtonReply(from, msg.interactive.button_reply.id);
+    return;
+  }
+
+  await sendMainMenu(from);
+}
+
+async function handleButtonReply(from: string, buttonId: string) {
+  if (buttonId === BUTTON_BOOK_COURT) {
+    // No courts/availability data model yet — see docs/app/db-schema.md.
+    await sendText(from, "Rezervările vin în curând! 🎾");
+    return;
+  }
+  await sendMainMenu(from);
+}
+
+function sendMainMenu(to: string) {
+  return sendButtons(to, "Bună! Cu ce te pot ajuta?", [
+    { id: BUTTON_BOOK_COURT, title: "Rezerva teren" },
+  ]);
 }
