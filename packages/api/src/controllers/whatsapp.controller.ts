@@ -1,9 +1,12 @@
+import { randomUUID } from "crypto";
 import { Request, Response } from "express";
 import { env } from "../config/env";
-import { sendText, sendButtons } from "../services/whatsapp.service";
+import { sendText, sendFlow } from "../services/whatsapp.service";
 import { registerIncomingMessage } from "../modules/contacts/contacts.service";
+import { FLOW_SCREENS } from "../modules/booking/booking.flow";
+import { getWeekDates, buildSummary } from "../modules/booking/booking.service";
 
-const BUTTON_BOOK_COURT = "book_court";
+const BOOKING_FLOW_NAME = "Rezervare Teren Tenis Tineretului";
 
 export function verifyWebhook(req: Request, res: Response) {
   const mode = req.query["hub.mode"];
@@ -29,28 +32,47 @@ export async function receiveMessage(req: Request, res: Response) {
   const from = msg.from;
   const { isNewConversation } = await registerIncomingMessage(from);
 
-  if (msg.type === "interactive" && msg.interactive?.type === "button_reply") {
-    await handleButtonReply(from, msg.interactive.button_reply.id);
+  if (msg.type === "interactive" && msg.interactive?.type === "nfm_reply") {
+    await handleFlowCompletion(from, msg.interactive.nfm_reply);
     return;
   }
 
   if (isNewConversation) {
     await sendText(from, "Intro");
   }
-  await sendMainMenu(from);
+  await sendBookingFlow(from);
 }
 
-async function handleButtonReply(from: string, buttonId: string) {
-  if (buttonId === BUTTON_BOOK_COURT) {
-    // No courts/availability data model yet — see docs/app/db-schema.md.
-    await sendText(from, "Rezervările vin în curând! 🎾");
-    return;
+async function handleFlowCompletion(from: string, nfmReply: { response_json: string }) {
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(nfmReply.response_json);
+  } catch (err) {
+    console.error("Failed to parse WhatsApp Flow response_json:", err);
   }
-  await sendMainMenu(from);
+
+  const dateId = data.date_id as string;
+  const slotId = data.slot_id as string;
+  const fieldId = data.field_id as string;
+
+  // Mock only — no reservations table yet, so nothing is persisted.
+  console.log("Booking flow submitted (mock):", data);
+
+  await sendText(
+    from,
+    `Rezervare înregistrată (mock): ${buildSummary(dateId, slotId, fieldId)}. Te contactăm pentru confirmare! 🎾`
+  );
 }
 
-function sendMainMenu(to: string) {
-  return sendButtons(to, "Bună! Cu ce te pot ajuta?", [
-    { id: BUTTON_BOOK_COURT, title: "Rezerva teren" },
-  ]);
+function sendBookingFlow(to: string) {
+  const { dates, weekOffset } = getWeekDates(0);
+  return sendFlow(to, {
+    flowId: env.WHATSAPP_FLOW_ID,
+    flowToken: randomUUID(),
+    headerText: BOOKING_FLOW_NAME,
+    bodyText: "Rezervă un teren în câțiva pași simpli.",
+    ctaText: "Rezervă acum",
+    initialScreen: FLOW_SCREENS.DATE_SELECT,
+    initialData: { dates, week_offset: weekOffset },
+  });
 }

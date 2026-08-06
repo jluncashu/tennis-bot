@@ -13,13 +13,18 @@ generated: { by: claude-code/sonnet-5, at: 2026-08-06T00:00:00Z }
 graph LR
   WA[WhatsApp Cloud API] -- "POST /webhook" --> API[TenisBot API]
   API -- "GET /webhook (verify)" --> WA
-  API -- "POST .../messages (sendText/sendButtons)" --> WA
+  API -- "POST .../messages (sendText/sendFlow)" --> WA
+  WA -- "POST /flow (encrypted, per screen)" --> API
   API -- "upsert on every message" --> DB[(Postgres — Neon)]
 ```
 
 - The only external integration today is the WhatsApp Cloud API, used by
-  [WhatsApp messaging](/features/whatsapp-messaging.md) for both the
-  webhook (inbound) and the Graph API (outbound replies).
+  [WhatsApp messaging](/features/whatsapp-messaging.md) for the webhook
+  (inbound) and the Graph API (outbound replies), and by
+  [the court-booking Flow](/features/court-booking-flow.md) for the
+  separate encrypted `POST /flow` data-exchange endpoint that drives the
+  day/slot/field booking screens (mock data — see
+  [Database schema](/db-schema.md)).
 - The database is Neon (serverless Postgres), reached over TLS via the
   singleton pool in `packages/api/src/config/db.ts` — see
   [the connection convention](../conventions/config/db-connection.md).

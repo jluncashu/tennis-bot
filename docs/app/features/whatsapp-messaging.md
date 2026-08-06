@@ -1,7 +1,7 @@
 ---
 type: Feature
 title: WhatsApp messaging
-description: Verifies the WhatsApp Cloud API webhook and replies to any incoming message with a button menu (currently just "Rezerva teren").
+description: Verifies the WhatsApp Cloud API webhook and, on every incoming message, triggers the court-booking WhatsApp Flow.
 tags: [whatsapp, messaging]
 resource: packages/api/src/routes/whatsapp.routes.ts
 status: stable
@@ -21,34 +21,34 @@ generated: { by: claude-code/sonnet-5, at: 2026-08-06T00:00:00Z }
     reports whether this counts as a **new conversation** — no prior row
     in the [contacts table](/db-schema.md), or `last_seen_at` more than
     24h ago (WhatsApp's own conversation-window boundary).
-  - If it's a reply-button tap (`type: "interactive"`,
-    `interactive.type: "button_reply"`), it's dispatched by button id.
-    Tapping **Rezerva teren** (`book_court`) currently gets a placeholder
-    reply — there's no booking flow yet.
-  - Otherwise (plain text, or an unrecognized button id): if it's a new
-    conversation, sends a literal `"Intro"` text message first, then
-    always resends the main menu (body text "Bună! Cu ce te pot ajuta?"
-    plus the **Rezerva teren** reply button).
+  - If it's the final submission of the booking flow (`type: "interactive"`,
+    `interactive.type: "nfm_reply"`), it's handled by
+    `handleFlowCompletion` — see
+    [the court-booking flow feature](court-booking-flow.md).
+  - Otherwise (plain text, or anything else): if it's a new conversation,
+    sends a literal `"Intro"` text message first, then always triggers the
+    booking flow (see [court-booking-flow.md](court-booking-flow.md)).
 - Non-text/non-interactive or status-update payloads (no `messages[0]`)
   are ignored after the ack.
 
-The old plain-text echo (`You said: ...`) is gone — every incoming message
-now gets the button menu, with an "Intro" message prepended the first
-time a customer messages (or returns after 24h+ of silence).
+The old reply-button menu is gone — replaced by a WhatsApp Flow. See
+[court-booking-flow.md](court-booking-flow.md) for the multi-screen
+booking UI and its own endpoint (`POST /flow`).
 
 # Endpoints
 
-| Method | Path       | Handler          |
-|--------|------------|-------------------|
-| GET    | `/webhook` | `verifyWebhook`   |
-| POST   | `/webhook` | `receiveMessage`  |
+| Method | Path       | Handler                  |
+|--------|------------|---------------------------|
+| GET    | `/webhook` | `verifyWebhook`           |
+| POST   | `/webhook` | `receiveMessage`          |
+| POST   | `/flow`    | `handleFlowDataExchange` (see [court-booking-flow.md](court-booking-flow.md)) |
 
 # Code
 
 - Router: `packages/api/src/routes/whatsapp.routes.ts`
 - Controller: `packages/api/src/controllers/whatsapp.controller.ts`
-- Service: `packages/api/src/services/whatsapp.service.ts` (`sendText`, `sendButtons` — both call the Graph API)
-- Also uses the [contacts module](/db-schema.md) (`packages/api/src/modules/contacts/`) to detect new conversations
+- Service: `packages/api/src/services/whatsapp.service.ts` (`sendText`, `sendFlow` — both call the Graph API)
+- Also uses the [contacts module](/db-schema.md) (`packages/api/src/modules/contacts/`) to detect new conversations, and the [booking module](court-booking-flow.md) to trigger the Flow
 
 This feature predates the [module pattern](../../conventions/module-pattern/index.md):
 its files live in flat `controllers/`, `routes/`, `services/` directories
@@ -65,22 +65,15 @@ message upserts a row in the `contacts` table — see
 
 # Config
 
-Requires `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, and
-`WHATSAPP_VERIFY_TOKEN`, validated in `packages/api/src/config/env.ts`.
+Requires `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`,
+`WHATSAPP_VERIFY_TOKEN`, and (for the booking flow) `WHATSAPP_FLOW_ID` +
+`WHATSAPP_FLOW_PRIVATE_KEY`, validated in `packages/api/src/config/env.ts`.
 
 # Known gaps
 
 - The `contacts` module has no `.test.ts` — this repo doesn't have a test
   runner (vitest) set up yet, so it was skipped rather than added as a
-  side effect of this feature.
+  side effect of a feature.
 - "Intro" is a literal placeholder message, not real copy.
-- "Rezerva teren" only sends a placeholder reply — no courts, availability,
-  or reservation persistence exists yet (see [Database schema](/db-schema.md)).
-  Building that is a separate, larger task (new table(s), availability
-  logic, confirmation flow).
-- The menu has one button. WhatsApp reply-button messages cap out at 3;
-  if a 4th option is needed, switch `sendMainMenu` to a list message
-  (`interactive.type: "list"`, up to 10 items) instead of adding a 4th
-  button.
-- No error surfaced to the sender if `sendText`/`sendButtons` fails (only
+- No error surfaced to the sender if `sendText`/`sendFlow` fails (only
   logged).

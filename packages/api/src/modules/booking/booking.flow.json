@@ -1,0 +1,184 @@
+{
+  "version": "5.1",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "DATE_SELECT": ["DATE_SELECT", "SLOT_SELECT"],
+    "SLOT_SELECT": ["FIELD_SELECT"],
+    "FIELD_SELECT": ["CONFIRM"],
+    "CONFIRM": []
+  },
+  "screens": [
+    {
+      "id": "DATE_SELECT",
+      "title": "Alege ziua",
+      "data": {
+        "dates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          }
+        },
+        "week_offset": { "type": "number" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Rezervare Teren Tenis Tineretului" },
+          { "type": "TextBody", "text": "Alege ziua în care vrei să joci." },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "date_id",
+            "label": "Zi disponibilă",
+            "data-source": "${data.dates}",
+            "required": true
+          },
+          {
+            "type": "EmbeddedLink",
+            "text": "◀ Săptămâna trecută",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "nav": "prev", "week_offset": "${data.week_offset}" }
+            }
+          },
+          {
+            "type": "EmbeddedLink",
+            "text": "Săptămâna următoare ▶",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "nav": "next", "week_offset": "${data.week_offset}" }
+            }
+          },
+          {
+            "type": "Footer",
+            "label": "Continuă",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "date_id": "${form.date_id}" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SLOT_SELECT",
+      "title": "Alege ora",
+      "data": {
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          }
+        },
+        "date_id": { "type": "string" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Ore disponibile" },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "slot_id",
+            "label": "Interval orar",
+            "data-source": "${data.slots}",
+            "required": true
+          },
+          {
+            "type": "Footer",
+            "label": "Continuă",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "date_id": "${data.date_id}", "slot_id": "${form.slot_id}" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "FIELD_SELECT",
+      "title": "Alege terenul",
+      "data": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          }
+        },
+        "date_id": { "type": "string" },
+        "slot_id": { "type": "string" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Terenuri disponibile" },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "field_id",
+            "label": "Teren",
+            "data-source": "${data.fields}",
+            "required": true
+          },
+          {
+            "type": "Footer",
+            "label": "Continuă",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "date_id": "${data.date_id}",
+                "slot_id": "${data.slot_id}",
+                "field_id": "${form.field_id}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "CONFIRM",
+      "title": "Confirmă rezervarea",
+      "terminal": true,
+      "data": {
+        "summary": { "type": "string" },
+        "date_id": { "type": "string" },
+        "slot_id": { "type": "string" },
+        "field_id": { "type": "string" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Confirmă rezervarea" },
+          { "type": "TextBody", "text": "${data.summary}" },
+          { "type": "TextInput", "name": "name", "label": "Nume", "input-type": "text", "required": true },
+          { "type": "TextInput", "name": "phone", "label": "Telefon", "input-type": "phone", "required": true },
+          { "type": "TextArea", "name": "notes", "label": "Observații (opțional)", "required": false },
+          {
+            "type": "Footer",
+            "label": "Confirmă rezervarea",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "date_id": "${data.date_id}",
+                "slot_id": "${data.slot_id}",
+                "field_id": "${data.field_id}",
+                "name": "${form.name}",
+                "phone": "${form.phone}",
+                "notes": "${form.notes}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

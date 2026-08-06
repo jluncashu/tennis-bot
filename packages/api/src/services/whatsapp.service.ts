@@ -26,31 +26,43 @@ export async function sendText(to: string, body: string) {
   }
 }
 
-export interface ReplyButton {
-  id: string;
-  title: string; // WhatsApp limit: 20 characters
+export interface FlowTrigger {
+  flowId: string;
+  flowToken: string;
+  headerText: string;
+  bodyText: string;
+  ctaText: string;
+  initialScreen: string;
+  initialData?: Record<string, unknown>;
 }
 
-// WhatsApp reply-button messages support at most 3 buttons; switch to a
-// list message (type: "list") if a menu ever needs more than that.
-export async function sendButtons(to: string, bodyText: string, buttons: ReplyButton[]) {
+export async function sendFlow(to: string, flow: FlowTrigger) {
   try {
     await client().post("", {
       messaging_product: "whatsapp",
       to,
       type: "interactive",
       interactive: {
-        type: "button",
-        body: { text: bodyText },
+        type: "flow",
+        header: { type: "text", text: flow.headerText },
+        body: { text: flow.bodyText },
         action: {
-          buttons: buttons.map(({ id, title }) => ({
-            type: "reply",
-            reply: { id, title },
-          })),
+          name: "flow",
+          parameters: {
+            flow_message_version: "3",
+            flow_token: flow.flowToken,
+            flow_id: flow.flowId,
+            flow_cta: flow.ctaText,
+            flow_action: "navigate",
+            flow_action_payload: {
+              screen: flow.initialScreen,
+              data: flow.initialData ?? {},
+            },
+          },
         },
       },
     });
   } catch (err: any) {
-    console.error("sendButtons failed:", err.response?.data ?? err.message);
+    console.error("sendFlow failed:", err.response?.data ?? err.message);
   }
 }
