@@ -74,5 +74,6 @@ function sendBookingFlow(to: string) {
     ctaText: "Rezervă acum",
     initialScreen: FLOW_SCREENS.DATE_SELECT,
     initialData: { dates, week_offset: weekOffset },
+    mode: env.WHATSAPP_FLOW_MODE,
   });
 }

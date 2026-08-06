@@ -34,6 +34,10 @@ export interface FlowTrigger {
   ctaText: string;
   initialScreen: string;
   initialData?: Record<string, unknown>;
+  // "draft" sends the flow's unpublished version — only deliverable to
+  // numbers registered as testers in the App Dashboard. Omit (or
+  // "published") once the flow has passed Meta's publish/integrity check.
+  mode?: "draft" | "published";
 }
 
 export async function sendFlow(to: string, flow: FlowTrigger) {
@@ -58,6 +62,7 @@ export async function sendFlow(to: string, flow: FlowTrigger) {
               screen: flow.initialScreen,
               data: flow.initialData ?? {},
             },
+            ...(flow.mode ? { mode: flow.mode } : {}),
           },
         },
       },

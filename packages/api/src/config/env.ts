@@ -12,6 +12,9 @@ const envSchema = z.object({
   // PEM, stored with literal \n escapes in the env var; normalized to real newlines here.
   WHATSAPP_FLOW_PRIVATE_KEY: z.string().min(1).transform((key) => key.replace(/\\n/g, "\n")),
   WHATSAPP_FLOW_PRIVATE_KEY_PASSPHRASE: z.string().optional(),
+  // "draft" while the flow hasn't passed Meta's publish check yet (only
+  // deliverable to App Dashboard tester numbers); "published" once it has.
+  WHATSAPP_FLOW_MODE: z.enum(["draft", "published"]).default("published"),
 });
 
 export const env = envSchema.parse(process.env);
