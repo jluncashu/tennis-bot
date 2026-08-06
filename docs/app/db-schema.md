@@ -16,10 +16,16 @@ None yet. `src/db/schema.ts` is an empty re-export barrel:
 export {};
 ```
 
-A Postgres connection is wired up (`packages/api/src/config/db.ts`, via
-`DATABASE_URL`), but no module owns a table yet — see
+A Neon (serverless Postgres) connection is wired up
+(`packages/api/src/config/db.ts`, via `DATABASE_URL`; see
+[the connection convention](../conventions/config/db-connection.md)), but
+no module owns a table yet — see
 [the WhatsApp messaging feature](/features/whatsapp-messaging.md), which is
 currently the only feature and does not touch the database.
+
+Migrations run through Drizzle Kit
+(`packages/api/drizzle.config.ts`): `npm run db:generate` to write a
+migration from schema changes, `npm run db:migrate` to apply it.
 
 # Update policy
 
