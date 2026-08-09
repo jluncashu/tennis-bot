@@ -5,6 +5,7 @@ import { sendText, sendFlow } from "../services/whatsapp.service";
 import { registerIncomingMessage } from "../modules/contacts/contacts.service";
 import { FLOW_SCREENS } from "../modules/booking/booking.flow";
 import { getWeekDates, buildSummary } from "../modules/booking/booking.service";
+import { handleIncomingMessage } from "../services/conversation.service";
 
 const BOOKING_FLOW_NAME = "Rezervare Teren Tenis Tineretului";
 
@@ -21,26 +22,33 @@ export function verifyWebhook(req: Request, res: Response) {
   res.sendStatus(403);
 }
 
+// export async function receiveMessage(req: Request, res: Response) {
+//   res.sendStatus(200); // ack immediately, Meta retries on timeout
+
+//   const entry = req.body?.entry?.[0];
+//   const change = entry?.changes?.[0];
+//   const msg = change?.value?.messages?.[0];
+//   if (!msg) return; // status update, not an actual message
+
+//   const from = msg.from;
+//   const { isNewConversation } = await registerIncomingMessage(from);
+
+//   if (msg.type === "interactive" && msg.interactive?.type === "nfm_reply") {
+//     await handleFlowCompletion(from, msg.interactive.nfm_reply);
+//     return;
+//   }
+
+//   if (isNewConversation) {
+//     await sendText(from, "Intro");
+//   }
+//   await sendBookingFlow(from);
+// }
+
 export async function receiveMessage(req: Request, res: Response) {
-  res.sendStatus(200); // ack immediately, Meta retries on timeout
-
-  const entry = req.body?.entry?.[0];
-  const change = entry?.changes?.[0];
-  const msg = change?.value?.messages?.[0];
-  if (!msg) return; // status update, not an actual message
-
-  const from = msg.from;
-  const { isNewConversation } = await registerIncomingMessage(from);
-
-  if (msg.type === "interactive" && msg.interactive?.type === "nfm_reply") {
-    await handleFlowCompletion(from, msg.interactive.nfm_reply);
-    return;
-  }
-
-  if (isNewConversation) {
-    await sendText(from, "Intro");
-  }
-  await sendBookingFlow(from);
+  res.sendStatus(200);
+  const msg = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  if (!msg?.text) return;
+  await handleIncomingMessage(msg.from, msg.text.body);
 }
 
 async function handleFlowCompletion(from: string, nfmReply: { response_json: string }) {
@@ -64,16 +72,18 @@ async function handleFlowCompletion(from: string, nfmReply: { response_json: str
   );
 }
 
-function sendBookingFlow(to: string) {
-  const { dates, weekOffset } = getWeekDates(0);
-  return sendFlow(to, {
-    flowId: env.WHATSAPP_FLOW_ID,
-    flowToken: randomUUID(),
-    headerText: BOOKING_FLOW_NAME,
-    bodyText: "Rezervă un teren în câțiva pași simpli.",
-    ctaText: "Rezervă acum",
-    initialScreen: FLOW_SCREENS.DATE_SELECT,
-    initialData: { dates, week_offset: weekOffset },
-    mode: env.WHATSAPP_FLOW_MODE,
-  });
-}
+// function sendBookingFlow(to: string) {
+//   const { dates, weekOffset } = getWeekDates(0);
+//   return sendFlow(to, {
+//     flowId: env.WHATSAPP_FLOW_ID,
+//     flowToken: randomUUID(),
+//     headerText: BOOKING_FLOW_NAME,
+//     bodyText: "Rezervă un teren în câțiva pași simpli.",
+//     ctaText: "Rezervă acum",
+//     initialScreen: FLOW_SCREENS.DATE_SELECT,
+//     initialData: { dates, week_offset: weekOffset },
+//     mode: env.WHATSAPP_FLOW_MODE,
+//   });
+// }
+
+

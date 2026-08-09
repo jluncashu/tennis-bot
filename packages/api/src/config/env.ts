@@ -8,9 +8,9 @@ const envSchema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1),
   WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1),
-  WHATSAPP_FLOW_ID: z.string().min(1),
+  // WHATSAPP_FLOW_ID: z.string().min(1),
   // PEM, stored with literal \n escapes in the env var; normalized to real newlines here.
-  WHATSAPP_FLOW_PRIVATE_KEY: z.string().min(1).transform((key) => key.replace(/\\n/g, "\n")),
+  // WHATSAPP_FLOW_PRIVATE_KEY: z.string().min(1).transform((key) => key.replace(/\\n/g, "\n")),
   WHATSAPP_FLOW_PRIVATE_KEY_PASSPHRASE: z.string().optional(),
   // "draft" while the flow hasn't passed Meta's publish check yet (only
   // deliverable to App Dashboard tester numbers); "published" once it has.

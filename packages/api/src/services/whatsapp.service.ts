@@ -13,6 +13,23 @@ function client() {
   });
 }
 
+export async function sendList(to: string, bodyText: string, buttonLabel: string, rows: { id: string; title: string }[]) {
+  try {
+    await client().post("", {
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "list",
+        body: { text: bodyText },
+        action: { button: buttonLabel, sections: [{ title: "Options", rows }] },
+      },
+    });
+  } catch (err: any) {
+    console.error("sendList failed:", err.response?.data ?? err.message);
+  }
+}
+
 export async function sendText(to: string, body: string) {
   try {
     await client().post("", {
