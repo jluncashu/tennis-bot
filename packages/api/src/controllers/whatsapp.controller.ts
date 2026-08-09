@@ -5,7 +5,7 @@ import { sendText, sendFlow } from "../services/whatsapp.service";
 import { registerIncomingMessage } from "../modules/contacts/contacts.service";
 import { FLOW_SCREENS } from "../modules/booking/booking.flow";
 import { getWeekDates, buildSummary } from "../modules/booking/booking.service";
-import { handleIncomingMessage } from "../services/conversation.service";
+import { handleIncomingMessage, handleListReply } from "../services/conversation.service";
 
 const BOOKING_FLOW_NAME = "Rezervare Teren Tenis Tineretului";
 
@@ -47,8 +47,16 @@ export function verifyWebhook(req: Request, res: Response) {
 export async function receiveMessage(req: Request, res: Response) {
   res.sendStatus(200);
   const msg = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  if (!msg?.text) return;
-  await handleIncomingMessage(msg.from, msg.text.body);
+  if (!msg) return;
+
+  if (msg.type === "interactive" && msg.interactive?.type === "list_reply") {
+    await handleListReply(msg.from, msg.interactive.list_reply.id);
+    return;
+  }
+
+  if (msg.text) {
+    await handleIncomingMessage(msg.from, msg.text.body);
+  }
 }
 
 async function handleFlowCompletion(from: string, nfmReply: { response_json: string }) {

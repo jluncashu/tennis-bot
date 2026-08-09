@@ -13,7 +13,12 @@ function client() {
   });
 }
 
-export async function sendList(to: string, bodyText: string, buttonLabel: string, rows: { id: string; title: string }[]) {
+export interface ListSection {
+  title: string;
+  rows: { id: string; title: string }[];
+}
+
+export async function sendList(to: string, bodyText: string, buttonLabel: string, sections: ListSection[]) {
   try {
     await client().post("", {
       messaging_product: "whatsapp",
@@ -22,7 +27,7 @@ export async function sendList(to: string, bodyText: string, buttonLabel: string
       interactive: {
         type: "list",
         body: { text: bodyText },
-        action: { button: buttonLabel, sections: [{ title: "Options", rows }] },
+        action: { button: buttonLabel, sections },
       },
     });
   } catch (err: any) {
