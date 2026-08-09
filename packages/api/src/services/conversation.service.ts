@@ -38,6 +38,52 @@ async function sendWeekPicker(phone: string, weekOffset: number) {
   ]);
 }
 
+// WhatsApp list messages cap out at 10 rows total, so hourly slots across
+// an 08:00-22:00 day (14 of them) won't fit — 2-hour frames (7 rows) do.
+const OPEN_HOUR = 8;
+const CLOSE_HOUR = 22;
+const SLOT_HOURS = 2;
+
+function pad(n: number) {
+  return n.toString().padStart(2, "0");
+}
+
+function getSlotRows(date: string) {
+  const rows = [];
+  for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour += SLOT_HOURS) {
+    rows.push({
+      id: `slot:${date}:${hour}`,
+      title: `${pad(hour)}:00 - ${pad(hour + SLOT_HOURS)}:00`,
+    });
+  }
+  return rows;
+}
+
+async function sendSlotPicker(phone: string, date: string) {
+  await sendList(phone, `Which time on ${date}?`, "Pick a time", [{ title: "Available times", rows: getSlotRows(date) }]);
+}
+
+const COVERED_COURTS = 4;
+const UNCOVERED_COURTS = 1;
+
+function getCourtRows(date: string, hour: string, covered: boolean, count: number) {
+  const rows = [];
+  for (let i = 1; i <= count; i++) {
+    rows.push({
+      id: `court:${date}:${hour}:${covered ? "covered" : "uncovered"}:${i}`,
+      title: `Court ${i} (${covered ? "covered" : "uncovered"})`,
+    });
+  }
+  return rows;
+}
+
+async function sendCourtPicker(phone: string, date: string, hour: string) {
+  await sendList(phone, `Which court for ${date}, ${pad(Number(hour))}:00?`, "Pick a court", [
+    { title: "Covered courts", rows: getCourtRows(date, hour, true, COVERED_COURTS) },
+    { title: "Uncovered courts", rows: getCourtRows(date, hour, false, UNCOVERED_COURTS) },
+  ]);
+}
+
 export async function handleIncomingMessage(phone: string, text: string) {
   if (["hi", "hello", "book"].includes(text.trim().toLowerCase())) {
     await sendWeekPicker(phone, 0);
@@ -53,6 +99,23 @@ export async function handleListReply(phone: string, replyId: string) {
 
   if (replyId.startsWith("date:")) {
     const date = replyId.slice("date:".length);
-    await sendText(phone, `Got it — ${date}. Slot selection isn't wired up yet.`);
+    await sendSlotPicker(phone, date);
+    return;
+  }
+
+  const slotMatch = replyId.match(/^slot:(\d{4}-\d{2}-\d{2}):(\d+)$/);
+  if (slotMatch) {
+    const [, date, hour] = slotMatch;
+    await sendCourtPicker(phone, date, hour);
+    return;
+  }
+
+  const courtMatch = replyId.match(/^court:(\d{4}-\d{2}-\d{2}):(\d+):(covered|uncovered):(\d+)$/);
+  if (courtMatch) {
+    const [, date, hour, type, num] = courtMatch;
+    await sendText(
+      phone,
+      `Got it — ${type} court ${num} on ${date} at ${pad(Number(hour))}:00. Booking isn't persisted yet.`
+    );
   }
 }
