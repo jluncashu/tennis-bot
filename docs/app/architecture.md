@@ -16,6 +16,7 @@ graph LR
   API -- "POST .../messages (sendText/sendFlow)" --> WA
   WA -- "POST /flow (encrypted, per screen)" --> API
   API -- "upsert on every message" --> DB[(Postgres — Neon)]
+  WEB[Admin dashboard — packages/web] -- "GET /api/reservations, GET/PUT /api/settings" --> API
 ```
 
 - The only external integration today is the WhatsApp Cloud API, used by
@@ -30,8 +31,10 @@ graph LR
   [the connection convention](../conventions/config/db-connection.md).
   First real table: `contacts`, upserted on every inbound WhatsApp message
   to detect new conversations. See [Database schema](/db-schema.md).
-- There is a `packages/web` package in the monorepo but it currently holds
-  only a static `test.html` — no frontend feature exists to document yet.
+- `packages/web` is a Vite/React admin dashboard (login gate, Reservations,
+  Settings) that calls the API over plain HTTP/CORS — see
+  [Admin dashboard](/features/admin-dashboard.md). It doesn't touch the
+  database directly; the endpoints it calls are mock/in-memory for now.
 
 # Update policy
 

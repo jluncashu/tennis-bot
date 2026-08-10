@@ -15,6 +15,7 @@ const envSchema = z.object({
   // "draft" while the flow hasn't passed Meta's publish check yet (only
   // deliverable to App Dashboard tester numbers); "published" once it has.
   WHATSAPP_FLOW_MODE: z.enum(["draft", "published"]).default("published"),
+  CLIENT_URL: z.string().url().default("http://localhost:5173"),
 });
 
 export const env = envSchema.parse(process.env);
