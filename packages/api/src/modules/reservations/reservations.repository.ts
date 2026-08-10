@@ -70,14 +70,22 @@ function mockReservationsForDate(dateId: string): Reservation[] {
   return reservations.sort((a, b) => a.startHour - b.startHour);
 }
 
-// Same "today + weekOffset*7 + i" pattern as booking.repository.ts's
-// mockDatesForWeek, so prev/next week navigation always yields a
-// deterministic (if fake) set of bookings for any week, past or future.
+function mondayOf(d: Date): Date {
+  const day = d.getDay(); // 0 = Sunday .. 6 = Saturday
+  const diff = day === 0 ? -6 : 1 - day;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+}
+
+// Real Monday-Sunday calendar weeks (unlike booking.repository.ts's
+// "today + weekOffset*7" rolling window) so the dashboard's week grid
+// lines up with react-big-calendar's native Week view, which always
+// renders a Mon-Sun range for whatever date it's given.
 function mockReservationsForWeek(weekOffset: number): Reservation[] {
-  const today = new Date();
+  const monday = mondayOf(new Date());
+  const weekStart = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + weekOffset * 7);
   const all: Reservation[] = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + weekOffset * 7 + i);
+    const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
     all.push(...mockReservationsForDate(toDateId(d)));
   }
   return all;

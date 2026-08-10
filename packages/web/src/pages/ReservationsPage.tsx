@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import FullCalendar from "@fullcalendar/react";
-import timeGridPlugin from "@fullcalendar/timegrid";
-import enGbLocale from "@fullcalendar/core/locales/en-gb";
-import type { EventContentArg, EventInput } from "@fullcalendar/core";
+import { Calendar, dayjsLocalizer, Views } from "react-big-calendar";
+import dayjs from "dayjs";
+import "dayjs/locale/en-gb";
+import "react-big-calendar/lib/css/react-big-calendar.css";
 import { apiGet } from "../lib/api";
-import { CourtPicker } from "../components/CourtPicker";
+
+// en-gb: Monday-first weeks (matches the backend's Mon-Sun
+// mockReservationsForWeek) and 24-hour time formats.
+dayjs.locale("en-gb");
 
 type ReservationStatus = "confirmed" | "pending" | "cancelled";
 
@@ -26,54 +29,62 @@ interface CourtSettings {
   pricePerSlotRON: number;
 }
 
-const STATUS_COLORS: Record<ReservationStatus, { background: string; border: string }> = {
-  confirmed: { background: "#059669", border: "#047857" },
-  pending: { background: "#d97706", border: "#b45309" },
-  cancelled: { background: "#dc2626", border: "#b91c1c" },
+interface CalendarEvent {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  resourceId: string;
+  status: ReservationStatus;
+}
+
+interface CourtResource {
+  resourceId: string;
+  resourceTitle: string;
+}
+
+const STATUS_COLORS: Record<ReservationStatus, string> = {
+  confirmed: "#059669", // emerald-600
+  pending: "#d97706", // amber-600
+  cancelled: "#dc2626", // red-600
 };
 
-// Same "today + weekOffset*7" rolling-window start used by the backend's
-// mockReservationsForWeek, so the calendar's visible range always matches
-// what was actually fetched.
-function startDateForWeekOffset(offset: number): string {
-  const today = new Date();
-  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset * 7);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+const localizer = dayjsLocalizer(dayjs);
+
+const calendarFormats = {
+  dayFormat: (date: Date) => dayjs(date).format("ddd DD/MM"),
+  timeGutterFormat: (date: Date) => dayjs(date).format("HH:mm"),
+  eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
+    `${dayjs(start).format("HH:mm")} – ${dayjs(end).format("HH:mm")}`,
+};
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
 }
 
-// FullCalendar duration strings are "HH:MM:SS" — minutes must be < 60, so
-// a 90/120-minute slot has to be expressed as extra hours, not "00:90:00".
-function minutesToDuration(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${pad(hours)}:${pad(minutes)}:00`;
+// A real Monday-Sunday calendar week, matching the backend's
+// mockReservationsForWeek (reservations.repository.ts) so the fetched
+// data always lines up with what react-big-calendar's Week view renders.
+function mondayOfWeek(offset: number): Date {
+  const today = new Date();
+  const day = today.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + diff);
+  return new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + offset * 7);
 }
 
-function renderEventContent(arg: EventContentArg) {
-  const status = arg.event.extendedProps.status as ReservationStatus;
+function EventContent({ event }: { event: CalendarEvent }) {
   return (
-    <div className="truncate px-1 py-0.5 text-xs">
-      <span className="font-semibold">{arg.event.title}</span>
-      <span className="opacity-90"> · {status}</span>
+    <div className="truncate text-xs">
+      <span className="font-semibold">{event.title}</span>
+      <span className="opacity-90"> · {event.status}</span>
     </div>
   );
 }
 
-const CUSTOM_VIEWS = {
-  rollingWeek: {
-    type: "timeGrid",
-    duration: { days: 7 },
-  },
-};
-
 export function ReservationsPage() {
   const [settings, setSettings] = useState<CourtSettings | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [activeCourt, setActiveCourt] = useState<string | null>(null);
 
   const [weekOffset, setWeekOffset] = useState(0);
   const [reservations, setReservations] = useState<Reservation[] | null>(null);
@@ -81,10 +92,7 @@ export function ReservationsPage() {
 
   useEffect(() => {
     apiGet<CourtSettings>("/api/settings")
-      .then((data) => {
-        setSettings(data);
-        setActiveCourt((current) => current ?? data.courts[0] ?? null);
-      })
+      .then(setSettings)
       .catch((err) => setSettingsError(err.message));
   }, []);
 
@@ -95,43 +103,39 @@ export function ReservationsPage() {
       .catch((err) => setReservationsError(err.message));
   }, [weekOffset]);
 
-  const events = useMemo<EventInput[]>(() => {
-    if (!reservations || !activeCourt || !settings) return [];
-    return reservations
-      .filter((r) => r.court === activeCourt)
-      .map((r) => {
-        const start = new Date(`${r.date}T${pad(r.startHour)}:00:00`);
-        const end = new Date(start.getTime() + settings.slotDurationMinutes * 60_000);
-        const colors = STATUS_COLORS[r.status];
-        return {
-          id: r.id,
-          title: r.customerName,
-          start,
-          end,
-          backgroundColor: colors.background,
-          borderColor: colors.border,
-          textColor: "#ffffff",
-          extendedProps: { status: r.status, customerPhone: r.customerPhone },
-        };
-      });
-  }, [reservations, activeCourt, settings]);
+  const resources = useMemo<CourtResource[]>(
+    () => (settings ? settings.courts.map((court) => ({ resourceId: court, resourceTitle: court })) : []),
+    [settings]
+  );
+
+  const events = useMemo<CalendarEvent[]>(() => {
+    if (!reservations || !settings) return [];
+    return reservations.map((r) => {
+      const start = new Date(`${r.date}T${pad(r.startHour)}:00:00`);
+      const end = new Date(start.getTime() + settings.slotDurationMinutes * 60_000);
+      return { id: r.id, title: r.customerName, start, end, resourceId: r.court, status: r.status };
+    });
+  }, [reservations, settings]);
 
   const error = settingsError ?? reservationsError;
-  const loading = !error && (!settings || !activeCourt || reservations === null);
+  const loading = !error && (!settings || reservations === null);
+  const weekStart = mondayOfWeek(weekOffset);
 
   return (
     <div>
       <h1 className="text-2xl font-semibold text-slate-900">Reservations</h1>
-      <p className="mt-1 text-sm text-slate-500">Pick a court to see its booking calendar (mock data).</p>
+      <p className="mt-1 text-sm text-slate-500">All courts, one week at a glance (mock data).</p>
 
       {error && <p className="mt-6 text-sm text-red-600">Failed to load: {error}</p>}
 
       {!error && loading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
 
-      {!error && settings && activeCourt && reservations !== null && (
+      {!error && settings && reservations !== null && (
         <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
-            <CourtPicker courts={settings.courts} active={activeCourt} onChange={setActiveCourt} />
+            <h2 className="text-sm font-semibold text-slate-900">
+              {dayjs(weekStart).format("DD MMM")} – {dayjs(weekStart).add(6, "day").format("DD MMM YYYY")}
+            </h2>
             <div className="inline-flex overflow-hidden rounded-md ring-1 ring-inset ring-slate-300">
               <button
                 type="button"
@@ -160,25 +164,28 @@ export function ReservationsPage() {
           </div>
 
           <div className="p-4">
-            <FullCalendar
-              key={weekOffset}
-              plugins={[timeGridPlugin]}
-              initialView="rollingWeek"
-              views={CUSTOM_VIEWS}
-              initialDate={startDateForWeekOffset(weekOffset)}
-              headerToolbar={{ left: "", center: "title", right: "" }}
-              locale={enGbLocale}
-              dayHeaderFormat={{ weekday: "short", day: "2-digit", month: "2-digit" }}
-              slotLabelFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-              eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-              nowIndicator
-              slotMinTime={`${pad(settings.openHour)}:00:00`}
-              slotMaxTime={`${pad(settings.closeHour)}:00:00`}
-              slotDuration={minutesToDuration(settings.slotDurationMinutes)}
-              allDaySlot={false}
-              height="auto"
+            <Calendar
+              localizer={localizer}
+              date={weekStart}
+              onNavigate={() => {}}
+              defaultView={Views.WEEK}
+              views={[Views.WEEK]}
+              toolbar={false}
+              resources={resources}
+              resourceIdAccessor="resourceId"
+              resourceTitleAccessor="resourceTitle"
+              resourceGroupingLayout
               events={events}
-              eventContent={renderEventContent}
+              min={new Date(1970, 0, 1, settings.openHour, 0)}
+              max={new Date(1970, 0, 1, settings.closeHour, 0)}
+              step={settings.slotDurationMinutes}
+              timeslots={1}
+              formats={calendarFormats}
+              eventPropGetter={(event) => ({
+                style: { backgroundColor: STATUS_COLORS[(event as CalendarEvent).status], color: "#fff" },
+              })}
+              components={{ event: EventContent }}
+              style={{ height: 700 }}
             />
           </div>
         </div>

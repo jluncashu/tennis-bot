@@ -1,7 +1,7 @@
 ---
 type: Feature
 title: Admin dashboard
-description: A login-gated web dashboard (packages/web) for managing court Reservations (FullCalendar week view) and Settings, backed by two mock/in-memory API modules.
+description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar week grid, all courts as sub-columns) and Settings, backed by two mock/in-memory API modules.
 tags: [web, admin, dashboard, reservations, settings, calendar]
 resource: packages/web/src/App.tsx
 status: stable
@@ -34,28 +34,58 @@ until real auth is built.
 
 - `src/components/DashboardLayout.tsx` — left sidebar (Reservations,
   Settings, Log out) + `<Outlet/>` content area.
-- `src/pages/ReservationsPage.tsx` — a [FullCalendar](https://fullcalendar.io/)
-  (`@fullcalendar/react` + `timegrid`) week-grid calendar for one court at
-  a time. `src/components/CourtPicker.tsx` (pill tabs, one per court from
-  `GET /api/settings`'s `courts` list) selects which court's bookings are
-  shown; reservations are fetched from `GET /api/reservations?weekOffset=`
-  and filtered client-side to the active court. Custom "◀ Previous week /
-  Today / Next week ▶" buttons (FullCalendar's own header nav is hidden)
-  drive a `weekOffset` state that both refetches the API and remounts the
-  calendar (`key={weekOffset}`) at the matching `initialDate`. The grid's
-  `slotMinTime`/`slotMaxTime`/`slotDuration` come from Settings'
+- `src/pages/ReservationsPage.tsx` — a
+  [react-big-calendar](https://github.com/jquense/react-big-calendar)
+  week-grid calendar showing **all courts at once**, each day column split
+  into one sub-column per court (`resources` = `GET /api/settings`'s
+  `courts` list, `resourceGroupingLayout` — day-major, resource-minor —
+  so a day's courts sit side by side instead of the library's default of
+  grouping every day under one resource column). There's no court picker;
+  reservations for the visible week (`GET /api/reservations?weekOffset=`)
+  are all rendered, positioned by `resourceId: court`.
+
+  **Why react-big-calendar and not FullCalendar**: FullCalendar's
+  equivalent (`@fullcalendar/resource-timegrid`) is FullCalendar
+  *Premium* — tri-licensed (paid commercial license / non-commercial
+  CC-BY-NC-ND trial / GPLv3), none of which fit a closed-source commercial
+  booking product for free. react-big-calendar's resource view is plain
+  MIT. Its day-major grouping landed in v1.16 (`resourceGroupingLayout`
+  prop, boolean) — earlier versions only supported resource-major
+  (grouping all 7 days under one resource column), which is why an older
+  library version wouldn't have worked either.
+
+  Custom "◀ Previous week / Today / Next week ▶" buttons
+  (`toolbar={false}` hides react-big-calendar's own) drive a `weekOffset`
+  state that both refetches the API and recomputes the controlled `date`
+  prop (`onNavigate` is a no-op — this component, not the library, owns
+  navigation). The grid's `min`/`max`/`step` come from Settings'
   `openHour`/`closeHour`/`slotDurationMinutes`, so changing business hours
-  in Settings changes the calendar's visible range and row height.
-  Events are color-coded by status (confirmed/pending/cancelled). Times
-  render 24-hour EU-style (`08:00`, not `8am`) with day/month date order
-  (`10/08`) via FullCalendar's `en-gb` locale
-  (`@fullcalendar/core/locales/en-gb`) plus explicit `hour12: false`
-  format objects — the rest of the UI stays English, only the date/time
-  formatting changes. A live `nowIndicator` line and CSS-variable-based
-  styling overrides (`src/index.css`, scoped to `.fc`) give it a more
-  polished look: refined grid-line/today-highlight colors, rounded
-  shadowed event blocks, a merged toolbar card with a segmented
-  ◀/Today/▶ control.
+  in Settings changes the calendar's visible range and row height. Events
+  are color-coded by status (confirmed/pending/cancelled) via
+  `eventPropGetter`, with a custom `components.event` renderer (name +
+  status, no default time-range subtitle competing for space).
+
+  Times render 24-hour EU-style (`08:00`, not `8am`) with day/month date
+  order (`10/08`) via `dayjs.locale("en-gb")` (imported once at module
+  scope) plus explicit `formats.timeGutterFormat`/`eventTimeRangeFormat`
+  overrides — the rest of the UI stays English, only date/time formatting
+  and (see below) week alignment change. CSS overrides in `src/index.css`
+  (`.rbc-*` selectors, several needing `!important` since
+  `react-big-calendar/lib/css/react-big-calendar.css` is imported inside
+  `ReservationsPage.tsx` and can land after `index.css` in the bundle)
+  give it a more polished look: refined grid-line/today-highlight colors,
+  rounded shadowed event blocks, the library's built-in
+  `.rbc-current-time-indicator` recolored to match.
+
+  **Calendar weeks, not a rolling window**: unlike
+  `booking.repository.ts`'s "today + N×7 days" pattern, both the frontend
+  (`mondayOfWeek`) and backend (`mockReservationsForWeek`, see below)
+  align `weekOffset` to real Monday–Sunday calendar weeks — required
+  because react-big-calendar's Week view always renders a full calendar
+  week for whatever `date` it's given (no custom-duration escape hatch
+  like FullCalendar had), so the two had to agree on the same convention.
+  The `en-gb` dayjs locale (`weekStart: 1`) makes the library's internal
+  week-boundary math agree with this too.
 - `src/pages/SettingsPage.tsx` — fetches `GET /api/settings` on mount, a
   form for opening hours, slot duration, courts, and price per slot;
   `PUT /api/settings` on save.
@@ -74,7 +104,7 @@ case in [Schema](../../conventions/module-pattern/schema.md)):
 
 | Method | Path               | Handler                       |
 |--------|--------------------|---------------------------------|
-| GET    | `/api/reservations` | `listReservationsController` (`?date=YYYY-MM-DD` for one day, else `?weekOffset=N` for a rolling 7-day window) |
+| GET    | `/api/reservations` | `listReservationsController` (`?date=YYYY-MM-DD` for one day, else `?weekOffset=N` for that Monday-Sunday calendar week) |
 | GET    | `/api/settings`      | `getSettingsController`        |
 | PUT    | `/api/settings`      | `updateSettingsController`     |
 
@@ -89,15 +119,15 @@ colliding on the same court/hour. Courts are `"Teren 1"|"Teren 2"|"Teren 3"`,
 matching the naming already used in `booking.repository.ts`. Status is one
 of `"confirmed"|"pending"|"cancelled"`.
 
-`mockReservationsForWeek(weekOffset)` generates `today + weekOffset*7 + i`
-for `i` in `0..6` — the same rolling-window pattern as
-`booking.repository.ts`'s `mockDatesForWeek` — so the dashboard's
-Previous/Next week buttons (`?weekOffset=-1`, `1`, ...) always return a
-deterministic week of bookings for any week, past or future; `?date=`
-still returns a single day. This is a rolling 7-day window anchored on
-today, **not** a calendar Monday–Sunday week — the frontend's
-`rollingWeek` custom FullCalendar view (`duration: { days: 7 }`) matches
-its start date exactly rather than using the built-in `timeGridWeek` view.
+`mockReservationsForWeek(weekOffset)` finds the Monday of the current
+calendar week (`mondayOf`), shifts it by `weekOffset * 7` days, then
+generates that Monday-Sunday week's 7 days — **not** the "today +
+weekOffset*7" rolling window `booking.repository.ts`'s `mockDatesForWeek`
+uses. The two diverge on purpose: the WhatsApp flow's rolling window suits
+a chat "next 7 days" feel, while the dashboard's calendar-week alignment
+is required by react-big-calendar's Week view (see above) and is the more
+standard mental model for an admin looking at "this week". `?date=` still
+returns a single day regardless.
 
 **Nothing here is connected to real bookings** — the WhatsApp booking
 flows still don't persist anything (see Known gaps in
@@ -124,10 +154,9 @@ These didn't exist before this feature despite being documented in
 - `cors` (new dependency) restricted to `env.CLIENT_URL` (new env var,
   default `http://localhost:5173`), so the Vite dev server can call the
   API cross-origin.
-- `@fullcalendar/core`, `@fullcalendar/react`, `@fullcalendar/timegrid`
-  (new dependencies in `packages/web`, pinned to `6.1.21` — all
-  `@fullcalendar/*` packages must share a major version, and `7.x` isn't
-  stable yet for `timegrid`).
+- `react-big-calendar` + `@types/react-big-calendar` + `dayjs` (new
+  dependencies in `packages/web`) — see the licensing note above for why
+  this was chosen over FullCalendar's resource view.
 
 # Interactions
 
@@ -174,7 +203,7 @@ No database involved — see Known gaps.
   runner (vitest) set up yet, same gap noted in
   [whatsapp-messaging.md](whatsapp-messaging.md) and
   [court-booking-flow.md](court-booking-flow.md).
-- The calendar shows one court at a time (picker), not a side-by-side
-  multi-court resource view.
 - No click-to-create — the calendar is read-only, no way to add/edit/
   cancel a reservation from the dashboard yet.
+- With enough courts the grid gets wide (courts × 7 days of columns) and
+  needs horizontal scrolling — no responsive/mobile layout for it yet.

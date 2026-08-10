@@ -9,16 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@fullcalendar/core": "6.1.21",
-    "@fullcalendar/react": "6.1.21",
-    "@fullcalendar/timegrid": "6.1.21",
+    "dayjs": "^1.11.21",
     "react": "^19.2.8",
+    "react-big-calendar": "^1.20.0",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
+    "@types/react-big-calendar": "^1.16.3",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "tailwindcss": "^4.3.3",

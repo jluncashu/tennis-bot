@@ -1,48 +1,63 @@
 @import "tailwindcss";
 
-/* FullCalendar — polish pass, scoped to the .fc root via CSS vars where
-   possible so it stays in sync if FullCalendar changes internals. */
-.fc {
-  --fc-border-color: #e2e8f0; /* slate-200 */
-  --fc-today-bg-color: #ecfdf5; /* emerald-50 */
-  --fc-now-indicator-color: #ef4444; /* red-500 */
-  --fc-page-bg-color: #ffffff;
+/* react-big-calendar — polish pass on top of its default CSS
+   (react-big-calendar/lib/css/react-big-calendar.css, imported in
+   ReservationsPage.tsx), scoped to .rbc- classes. */
+.rbc-calendar {
   font-family: inherit;
 }
 
-.fc .fc-toolbar-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: #0f172a; /* slate-900 */
+.rbc-time-header,
+.rbc-time-content,
+.rbc-time-view,
+.rbc-header,
+.rbc-day-slot .rbc-time-slot,
+.rbc-timeslot-group {
+  border-color: #e2e8f0 !important; /* slate-200 */
 }
 
-.fc .fc-col-header-cell-cushion {
-  padding: 10px 4px;
+.rbc-header {
+  padding: 8px 4px;
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #334155; /* slate-700 */
-  text-decoration: none;
+  border-bottom: none !important;
 }
 
-.fc .fc-timegrid-slot-label-cushion {
+.rbc-time-header-content .rbc-header + .rbc-header {
+  border-left-color: #e2e8f0 !important;
+}
+
+.rbc-label {
   font-size: 0.75rem;
   color: #64748b; /* slate-500 */
 }
 
-.fc .fc-timegrid-slot {
-  height: 2.75rem;
+.rbc-today {
+  background-color: #ecfdf5 !important; /* emerald-50 */
 }
 
-.fc .fc-event {
-  border-width: 0;
+.rbc-current-time-indicator {
+  background-color: #ef4444; /* red-500 */
+  height: 2px;
+}
+
+.rbc-event {
+  border: none !important;
   border-radius: 6px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+  padding: 2px 4px;
 }
 
-.fc .fc-timegrid-now-indicator-line {
-  border-width: 2px 0 0;
+.rbc-event-label {
+  display: none !important;
 }
 
-.fc .fc-timegrid-now-indicator-arrow {
-  border-width: 5px 0 5px 6px;
+.rbc-time-gutter .rbc-timeslot-group {
+  min-height: 2.75rem;
+}
+
+.rbc-resource-grouping .rbc-header {
+  font-size: 0.7rem;
+  color: #475569; /* slate-600 */
 }
