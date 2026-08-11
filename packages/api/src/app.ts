@@ -5,6 +5,7 @@ import { reservationsRouter } from "./modules/reservations/reservations.router";
 import { settingsRouter } from "./modules/settings/settings.router";
 import { errorMiddleware } from "./shared/middleware/error.middleware";
 import { env } from "./config/env";
+import { authRouter } from "./modules/auth/auth.router";
 
 export const app = express();
 
@@ -17,6 +18,7 @@ app.use("/api/settings", settingsRouter);
 app.get("/", (_req, res) => {
   res.send("Tennis WhatsApp bot is running.");
 });
+app.use("/auth", authRouter);
 
 // Must be last
 app.use(errorMiddleware);
