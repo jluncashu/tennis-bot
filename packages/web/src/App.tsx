@@ -1,24 +1,61 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { ProtectedRoute } from "./components/ProtectedRoute";
-import { DashboardLayout } from "./components/DashboardLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { ReservationsPage } from "./pages/ReservationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { useAuthStore } from "./store/auth.store";
+import { useEffect, useState } from "react";
+import { refreshApi } from "./api/auth.api";
 
 export function App() {
+  const { accessToken, setAuth, logout } = useAuthStore();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    refreshApi()
+      .then((result) => setAuth(result.club, result.accessToken))
+      .catch(() => logout())
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+  <Route
+    path="/auth"
+    element={
+      accessToken
+        ? <Navigate to="/reservations" replace />
+        : <LoginPage />
+    }
+  />
 
-      <Route element={<ProtectedRoute />}>
-        <Route element={<DashboardLayout />}>
-          <Route index element={<Navigate to="/reservations" replace />} />
-          <Route path="/reservations" element={<ReservationsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-      </Route>
+  <Route
+    path="/reservations"
+    element={
+      accessToken
+        ? <ReservationsPage />
+        : <Navigate to="/auth" replace />
+    }
+  />
 
-      <Route path="*" element={<Navigate to="/reservations" replace />} />
-    </Routes>
+  <Route
+    path="/settings"
+    element={
+      accessToken
+        ? <SettingsPage />
+        : <Navigate to="/auth" replace />
+    }
+  />
+
+  <Route
+    path="/"
+    element={<Navigate to="/reservations" replace />}
+  />
+
+  <Route
+    path="*"
+    element={<Navigate to="/reservations" replace />}
+  />
+</Routes>
   );
 }
