@@ -7,7 +7,6 @@
   "scripts": {
     "build": "npm run build --workspace=@tennis-bot/api",
     "start": "npm run start --workspace=@tennis-bot/api",
-    "dev": "npm run dev --workspace=@tennis-bot/api",
     "dev:api": "npm run dev --workspace=@tennis-bot/api",
     "dev:web": "npm run dev --workspace=@tennis-bot/web"
   }
