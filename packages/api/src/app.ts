@@ -8,9 +8,13 @@ import { authRouter } from "./modules/auth/auth.router";
 
 export const app = express();
 
-app.use(cors({ origin: env.CLIENT_URL }));
+app.use(cors({
+  origin: env.CLIENT_URL,
+  credentials: true,
+}));
 app.use(express.json());
 app.use("/", whatsappRouter);
 app.use("/api/reservations", reservationsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/auth", authRouter);
+

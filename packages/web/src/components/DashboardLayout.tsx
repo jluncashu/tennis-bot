@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { logout } from "../lib/auth";
+import { logoutApi } from "../api/auth.api";
+import { useAuthStore } from "../store/auth.store";
 
 const navItems = [
   { to: "/reservations", label: "Reservations" },
@@ -8,10 +9,15 @@ const navItems = [
 
 export function DashboardLayout() {
   const navigate = useNavigate();
+  const clearAuth = useAuthStore((s) => s.logout);
 
-  function handleLogout() {
-    logout();
-    navigate("/login", { replace: true });
+  async function handleLogout() {
+    try {
+      await logoutApi();
+    } finally {
+      clearAuth();
+      navigate("/auth", { replace: true });
+    }
   }
 
   return (

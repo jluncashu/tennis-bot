@@ -1,34 +1,48 @@
 ---
 type: Feature
 title: Admin dashboard
-description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar week grid, all courts as sub-columns) and Settings, backed by two mock/in-memory API modules.
-tags: [web, admin, dashboard, reservations, settings, calendar]
+description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar week grid, all courts as sub-columns) and Settings, with real JWT-backed auth and two mock/in-memory data API modules.
+tags: [web, admin, dashboard, reservations, settings, calendar, auth]
 resource: packages/web/src/App.tsx
 status: stable
-generated: { by: claude-code/sonnet-5, at: 2026-08-10T00:00:00Z }
+generated: { by: claude-code/sonnet-5, at: 2026-08-11T00:00:00Z }
 ---
 
 # What it does
 
 A single-page admin app in `packages/web` (Vite + React + TypeScript +
 Tailwind + React Router), previously an empty placeholder. It gates access
-behind a login page, then shows a left-sidebar dashboard with two sections:
+behind a login/register page, then (once authenticated) shows
 **Reservations** and **Settings**.
 
-## Login (not real auth)
+## Login (real auth)
 
-`src/pages/LoginPage.tsx` checks the submitted username/password against a
-hardcoded `"admin"/"admin"` **in the browser** — there is no backend login
-endpoint. On success it sets `sessionStorage["tenisbot_admin"] = "1"`
-(`src/lib/auth.ts`); `logout()` clears it. `src/components/ProtectedRoute.tsx`
-reads this flag and redirects to `/login` when absent, wrapping every
-dashboard route.
+`src/pages/LoginPage.tsx` is a combined login/register form (a `mode`
+toggle between `"login"` and `"register"`, register additionally collecting
+a club name) that calls the backend auth module
+(`packages/api/src/modules/auth/`) through `src/api/auth.api.ts`
+(`loginApi`, `registerApi`, both `POST /auth/{login,register}` via the
+shared `src/api/api.ts` axios instance) and follows
+[auth conventions](../../conventions/auth/index.md) exactly:
+accessToken/refreshToken split, `POST /auth/refresh` on app load,
+`POST /auth/logout` to clear the session. On success it stores
+`{ club, accessToken }` in `src/store/auth.store.ts` (Zustand, in-memory
+only) and navigates to `/reservations`.
 
-This is deliberately **not** the real auth system described in
-[auth conventions](../../conventions/auth/index.md) (accessToken/refreshToken,
-`/auth/refresh`, `/auth/logout`) — that convention isn't implemented
-anywhere in the codebase yet. This login is a client-side-only stand-in
-until real auth is built.
+`src/App.tsx` reads `accessToken` from the store directly to gate each
+route (`/reservations`, `/settings` redirect to `/auth` when absent) rather
+than through a wrapper component, and calls `refreshApi()` once on mount to
+restore a session from the `refreshToken` cookie. Each club is a row in the
+`clubs` table (see [Database schema](../db-schema.md)); `register` creates
+one (`argon2` password hash), `login` verifies against it — self-serve
+signup, not invite-only.
+
+`src/components/DashboardLayout.tsx` has the sidebar nav and a working
+"Log out" button (`logoutApi()` then clears the store and navigates to
+`/auth`), but **isn't currently mounted by any route in `App.tsx`** —
+`/reservations` and `/settings` render `ReservationsPage`/`SettingsPage`
+directly, with no sidebar. This predates this login rework and is unrelated
+to it; see Known gaps.
 
 ## Layout and pages
 
@@ -90,23 +104,36 @@ until real auth is built.
   form for opening hours, slot duration, courts, and price per slot;
   `PUT /api/settings` on save.
 - `src/lib/api.ts` — small `fetch` wrapper (`apiGet`/`apiPut`) against
-  `VITE_API_URL` (default `http://localhost:3000`).
-- Routes (`src/App.tsx`): `/login`, and `/reservations` + `/settings`
-  behind `ProtectedRoute`; `/` and unknown paths redirect to
-  `/reservations`.
+  `VITE_API_URL` (default `http://localhost:3000`), used by
+  Reservations/Settings. Auth instead goes through the separate axios
+  instance in `src/api/api.ts` (attaches the Bearer token from the store on
+  every request) — see Login above.
+- Routes (`src/App.tsx`): `/auth` (login/register, redirects to
+  `/reservations` if already authenticated), `/reservations` + `/settings`
+  (each individually gated on `accessToken`, redirecting to `/auth` when
+  absent), `/` and unknown paths redirect to `/reservations`.
 
 # Endpoints
 
-Both are new mock modules in `packages/api`, following the
-[module pattern](../../conventions/module-pattern/index.md) with Zod-only
-schemas (they don't own a DB entity — see the "does not own an entity"
-case in [Schema](../../conventions/module-pattern/schema.md)):
+`reservations` and `settings` are mock modules in `packages/api`, following
+the [module pattern](../../conventions/module-pattern/index.md) with
+Zod-only schemas (they don't own a DB entity — see the "does not own an
+entity" case in [Schema](../../conventions/module-pattern/schema.md)).
+`auth` is a real module backed by the `clubs` table (see
+[Database schema](../db-schema.md)) — also schema-only from the module
+pattern's perspective, since it doesn't define its own table (`clubs` lives
+in a separate `clubs` module it reads/writes).
 
-| Method | Path               | Handler                       |
-|--------|--------------------|---------------------------------|
+| Method | Path                | Handler                       |
+|--------|---------------------|--------------------------------|
+| POST   | `/auth/register`    | `registerController` — creates a `clubs` row, sets the `refreshToken` cookie, returns `{ accessToken, club }` |
+| POST   | `/auth/login`       | `loginController` — verifies against `clubs.password_hash` (argon2), same response shape |
+| POST   | `/auth/refresh`     | `refreshController` — reads the `refreshToken` cookie, rotates both tokens |
+| POST   | `/auth/logout`      | `logoutController` — clears the `refreshToken` cookie |
+| GET    | `/auth/me`          | `getMeController` — `requireAuth`-gated, returns the current club |
 | GET    | `/api/reservations` | `listReservationsController` (`?date=YYYY-MM-DD` for one day, else `?weekOffset=N` for that Monday-Sunday calendar week) |
-| GET    | `/api/settings`      | `getSettingsController`        |
-| PUT    | `/api/settings`      | `updateSettingsController`     |
+| GET    | `/api/settings`     | `getSettingsController`        |
+| PUT    | `/api/settings`     | `updateSettingsController`     |
 
 ## Reservations
 
@@ -161,18 +188,25 @@ These didn't exist before this feature despite being documented in
 # Interactions
 
 ```
-Browser (packages/web)        TenisBot API
-   |  GET /api/reservations -->|  reservations.router -> mock list
-   |  GET /api/settings ------>|  settings.router -> in-memory object
-   |  PUT /api/settings ------>|  validate -> update in-memory object
+Browser (packages/web)              TenisBot API
+   |  POST /auth/register/login --> |  auth.router -> clubs table (argon2)
+   |  POST /auth/refresh --------> |  verify refreshToken cookie -> rotate tokens
+   |  POST /auth/logout ---------> |  clear refreshToken cookie
+   |  GET /api/reservations ----->|  reservations.router -> mock list
+   |  GET /api/settings ---------> |  settings.router -> in-memory object
+   |  PUT /api/settings ---------> |  validate -> update in-memory object
 ```
 
-No database involved — see Known gaps.
+Auth is the only part of this feature that touches the database (the
+`clubs` table); Reservations/Settings are still mock/in-memory — see Known
+gaps.
 
 # Config
 
 - `packages/api`: `CLIENT_URL` (validated in `src/config/env.ts`, default
-  `http://localhost:5173`).
+  `http://localhost:5173`); `JWT_SECRET` (min 32 chars, no default —
+  required to sign/verify access + refresh tokens, see
+  [token strategy](../../conventions/auth/token-strategy.md)).
 - `packages/web`: `VITE_API_URL` (default `http://localhost:3000`, see
   `.env.example`).
 - **Port 3000 conflicts are a real gotcha in dev.** `PORT` (api) defaults
@@ -188,10 +222,15 @@ No database involved — see Known gaps.
 
 # Known gaps
 
-- **Not real auth.** Hardcoded client-side credential check, no tokens, no
-  server-side session. Anyone with browser dev tools can set the
-  `sessionStorage` flag directly. Fine for an internal mock dashboard, not
-  for production.
+- **`DashboardLayout` isn't mounted.** `src/components/DashboardLayout.tsx`
+  (sidebar nav + working logout) exists and is correct, but `App.tsx`
+  routes `/reservations`/`/settings` straight to the page components with
+  no layout wrapper, so the sidebar and logout button don't currently
+  render anywhere. Predates this login rework; needs `App.tsx`'s routes
+  nested under `<DashboardLayout>` (or similar) to actually show it.
+- Registration is fully open — anyone who reaches `/auth` can create a new
+  club (`POST /auth/register`), there's no invite/approval step or email
+  verification.
 - **Reservations are mock/in-memory**, regenerated fresh on every request
   (deterministic per date, not stored) — there is no reservations table
   yet (see [Database schema](../db-schema.md)) and no link to the actual

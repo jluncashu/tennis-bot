@@ -17,6 +17,8 @@ graph LR
   WA -- "POST /flow (encrypted, per screen)" --> API
   API -- "upsert on every message" --> DB[(Postgres — Neon)]
   WEB[Admin dashboard — packages/web] -- "GET /api/reservations, GET/PUT /api/settings" --> API
+  WEB -- "POST /auth/register, /auth/login, /auth/refresh, /auth/logout" --> API
+  API -- "read/write clubs" --> DB
 ```
 
 - The only external integration today is the WhatsApp Cloud API, used by
@@ -29,12 +31,15 @@ graph LR
 - The database is Neon (serverless Postgres), reached over TLS via the
   singleton pool in `packages/api/src/config/db.ts` — see
   [the connection convention](../conventions/config/db-connection.md).
-  First real table: `contacts`, upserted on every inbound WhatsApp message
-  to detect new conversations. See [Database schema](/db-schema.md).
-- `packages/web` is a Vite/React admin dashboard (login gate, Reservations,
-  Settings) that calls the API over plain HTTP/CORS — see
-  [Admin dashboard](/features/admin-dashboard.md). It doesn't touch the
-  database directly; the endpoints it calls are mock/in-memory for now.
+  Tables: `contacts`, upserted on every inbound WhatsApp message to detect
+  new conversations, and `clubs`, one row per admin-dashboard tenant,
+  read/written by the auth module. See [Database schema](/db-schema.md).
+- `packages/web` is a Vite/React admin dashboard (login/register,
+  Reservations, Settings) that calls the API over plain HTTP/CORS — see
+  [Admin dashboard](/features/admin-dashboard.md). Auth
+  (register/login/refresh/logout) is real, backed by the `clubs` table and
+  JWTs; Reservations and Settings still call mock/in-memory endpoints, not
+  the database.
 
 # Update policy
 

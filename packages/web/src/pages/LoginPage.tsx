@@ -1,65 +1,153 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { login } from "../lib/auth";
+import { Field } from "../components/Field";
+import { getErrorMessage, loginApi, registerApi } from "../api/auth.api";
+import { useAuthStore } from "../store/auth.store";
+
+type Mode = "login" | "register";
 
 export function LoginPage() {
-  const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState<Mode>("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: FormEvent) {
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const navigate = useNavigate();
+
+  const isRegister = mode === "register";
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (login(username, password)) {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = isRegister
+        ? await registerApi({ name, email, password })
+        : await loginApi({ email, password });
+
+      setAuth(result.club, result.accessToken);
       navigate("/reservations", { replace: true });
-      return;
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
     }
-    setError("Invalid username or password.");
+  }
+
+  function switchMode() {
+    setError(null);
+    setName("");
+    setEmail("");
+    setPassword("");
+    setMode(isRegister ? "login" : "register");
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-slate-900">TenisBot Admin</h1>
-        <p className="mt-1 text-sm text-slate-500">Sign in to manage reservations and settings.</p>
+        <h1 className="text-xl font-semibold text-slate-900">
+          {isRegister ? (
+            <>Create <em className="text-emerald-600 not-italic">account.</em></>
+          ) : (
+            <>Welcome <em className="text-emerald-600 not-italic">back.</em></>
+          )}
+        </h1>
+        <p className="mt-1 text-sm text-slate-500">
+          {isRegister
+            ? "Set up your club in seconds."
+            : "Sign in to manage reservations and settings."}
+        </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-slate-700">
-              Username
-            </label>
-            <input
-              id="username"
+          {isRegister && (
+            <Field
+              label="Club name"
               type="text"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              name="name"
+              autoComplete="organization"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Central Tennis Club"
+              icon={
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.7">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <polyline points="9 22 9 12 15 12 15 22" />
+                </svg>
+              }
             />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-slate-700">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
+          )}
+
+          <Field
+            label="Email"
+            type="email"
+            name="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@club.com"
+            icon={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.7">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m3 7 9 6 9-6" />
+              </svg>
+            }
+          />
+
+          <Field
+            label="Password"
+            type="password"
+            name="password"
+            autoComplete={isRegister ? "new-password" : "current-password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            icon={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.7">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            }
+          />
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           <button
             type="submit"
-            className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Sign in
+            {loading
+              ? "Please wait..."
+              : isRegister
+                ? "Create account"
+                : "Sign in"}
+
+            {!loading && (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            )}
           </button>
         </form>
+
+        <div className="mt-4 text-center text-sm text-slate-500">
+          {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
+          <button
+            type="button"
+            onClick={switchMode}
+            className="font-medium text-emerald-600 hover:text-emerald-700"
+          >
+            {isRegister ? "Sign in" : "Register"}
+          </button>
+        </div>
       </div>
     </div>
   );

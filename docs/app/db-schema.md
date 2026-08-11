@@ -10,6 +10,31 @@ generated: { by: claude-code/sonnet-5, at: 2026-08-06T00:00:00Z }
 
 # Tables
 
+## clubs
+
+Owned by: [Admin dashboard](/features/admin-dashboard.md)'s auth module
+(`packages/api/src/modules/auth/`), which reads/writes it via
+`packages/api/src/modules/clubs/clubs.schema.ts` — the auth module doesn't
+own the entity itself (see the "does not own an entity" case in
+[Schema](../conventions/module-pattern/schema.md)); `clubs` is the tenant
+row each dashboard login belongs to.
+
+| Column                        | Type      | Notes                                              |
+|--------------------------------|-----------|-----------------------------------------------------|
+| id                             | uuid      | primary key, default random                        |
+| name                           | text      | club name, set at registration                     |
+| email                          | varchar(100) | unique — login identifier                       |
+| password_hash                  | text      | argon2 hash, never returned to the client           |
+| whatsapp_phone_number_id       | text      | unique, nullable — not populated by any flow yet    |
+| timezone                       | text      | default `Europe/Bucharest`, not read anywhere yet   |
+| default_slot_duration_minutes  | smallint  | default `60`, not read anywhere yet                 |
+| created_at                     | timestamp | default now                                        |
+
+Relationships: none yet — `whatsapp_phone_number_id`, `timezone`, and
+`default_slot_duration_minutes` are defined but not wired to any WhatsApp
+flow or to [Settings](admin-dashboard.md#settings) (which still keeps its
+own separate in-memory object rather than reading from a club row).
+
 ## contacts
 
 Owned by: `packages/api/src/modules/contacts/` (used internally by [WhatsApp messaging](/features/whatsapp-messaging.md) — no HTTP surface of its own, so it skips the controller/router files in the [module pattern](../conventions/module-pattern/index.md)).

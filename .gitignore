@@ -1,6 +1,6 @@
 # Keys (e.g. the WhatsApp Flow RSA keypair generated locally)
 *.pem
-
+*.yml
 # Logs
 logs
 *.log
