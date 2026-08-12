@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { LoginPage } from "./pages/LoginPage";
 import { ReservationsPage } from "./pages/ReservationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { DashboardLayout } from "./components/DashboardLayout";
 import { useAuthStore } from "./store/auth.store";
 import { useEffect, useState } from "react";
 import { refreshApi } from "./api/auth.api";
@@ -30,22 +31,15 @@ export function App() {
   />
 
   <Route
-    path="/reservations"
     element={
       accessToken
-        ? <ReservationsPage />
+        ? <DashboardLayout />
         : <Navigate to="/auth" replace />
     }
-  />
-
-  <Route
-    path="/settings"
-    element={
-      accessToken
-        ? <SettingsPage />
-        : <Navigate to="/auth" replace />
-    }
-  />
+  >
+    <Route path="/reservations" element={<ReservationsPage />} />
+    <Route path="/settings" element={<SettingsPage />} />
+  </Route>
 
   <Route
     path="/"

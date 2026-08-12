@@ -49,6 +49,13 @@
   padding: 2px 4px;
 }
 
+/* The library reserves a 10px gutter per day column (margin-right on the
+   events container) so an event's width: 100% still falls short of the
+   column's actual edge — drop it so a booking fills the whole column. */
+.rbc-day-slot .rbc-events-container {
+  margin-right: 0 !important;
+}
+
 .rbc-event-label {
   display: none !important;
 }

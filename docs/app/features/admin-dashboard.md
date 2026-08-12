@@ -1,11 +1,11 @@
 ---
 type: Feature
 title: Admin dashboard
-description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar week grid, all courts as sub-columns) and Settings, with real JWT-backed auth and two mock/in-memory data API modules.
-tags: [web, admin, dashboard, reservations, settings, calendar, auth]
+description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar day grid with a date picker, all courts as sub-columns), Settings, and a call-center availability/booking search — real JWT-backed auth, but Reservations/Settings data is generated entirely client-side (mock modules), not fetched from the API.
+tags: [web, admin, dashboard, reservations, settings, calendar, auth, booking-search]
 resource: packages/web/src/App.tsx
 status: stable
-generated: { by: claude-code/sonnet-5, at: 2026-08-11T00:00:00Z }
+generated: { by: claude-code/sonnet-5, at: 2026-08-12T00:00:00Z }
 ---
 
 # What it does
@@ -13,7 +13,7 @@ generated: { by: claude-code/sonnet-5, at: 2026-08-11T00:00:00Z }
 A single-page admin app in `packages/web` (Vite + React + TypeScript +
 Tailwind + React Router), previously an empty placeholder. It gates access
 behind a login/register page, then (once authenticated) shows
-**Reservations** and **Settings**.
+**Reservations**, **Settings**, and a call-center **booking search**.
 
 ## Login (real auth)
 
@@ -35,83 +35,158 @@ than through a wrapper component, and calls `refreshApi()` once on mount to
 restore a session from the `refreshToken` cookie. Each club is a row in the
 `clubs` table (see [Database schema](../db-schema.md)); `register` creates
 one (`argon2` password hash), `login` verifies against it — self-serve
-signup, not invite-only.
+signup, not invite-only. `/reservations` and `/settings` are nested under
+`<DashboardLayout>` (sidebar nav + "Log out"), which renders normally.
 
-`src/components/DashboardLayout.tsx` has the sidebar nav and a working
-"Log out" button (`logoutApi()` then clears the store and navigates to
-`/auth`), but **isn't currently mounted by any route in `App.tsx`** —
-`/reservations` and `/settings` render `ReservationsPage`/`SettingsPage`
-directly, with no sidebar. This predates this login rework and is unrelated
-to it; see Known gaps.
+**Gotcha for anyone touching `packages/api/src/app.ts`**: the JSON error
+handler (`errorMiddleware`, registered last) is what turns a thrown
+`httpError(...)` into `{ error: "..." }`. If it's ever missing, Express's
+default handler takes over and returns an HTML stack-trace page instead —
+the login form still "works" for correct credentials, but every failure
+(wrong password, duplicate email, etc.) shows a useless
+`"Request failed with status 401"` because the frontend can't find
+`response.data.error` in an HTML body. This exact regression happened (the
+middleware was accidentally dropped while fixing CORS) and was the root
+cause the one time this looked like "I cannot login" — it wasn't CORS, auth
+itself worked fine over curl.
 
 ## Layout and pages
 
 - `src/components/DashboardLayout.tsx` — left sidebar (Reservations,
-  Settings, Log out) + `<Outlet/>` content area.
+  Settings, Log out) + `<Outlet/>` content area, nested under
+  `/reservations` and `/settings` in `src/App.tsx`.
 - `src/pages/ReservationsPage.tsx` — a
   [react-big-calendar](https://github.com/jquense/react-big-calendar)
-  week-grid calendar showing **all courts at once**, each day column split
-  into one sub-column per court (`resources` = `GET /api/settings`'s
-  `courts` list, `resourceGroupingLayout` — day-major, resource-minor —
-  so a day's courts sit side by side instead of the library's default of
-  grouping every day under one resource column). There's no court picker;
-  reservations for the visible week (`GET /api/reservations?weekOffset=`)
-  are all rendered, positioned by `resourceId: court`.
+  **Day** view for one selected date at a time, split into one sub-column
+  per court (`resources` = the local mock settings' `courts` list,
+  `resourceGroupingLayout`). Header controls: a native
+  `<input type="date">` date picker (jumps to any date), and
+  "◀ Previous day / Today / Next day ▶" buttons (`toolbar={false}` hides
+  react-big-calendar's own; `onNavigate` is a no-op — this component, not
+  the library, owns navigation via `selectedDate` state). A "New booking"
+  button in the header opens the [booking search](#booking-search-call-center)
+  modal. Events are color-coded by status (confirmed/pending/cancelled) via
+  `eventPropGetter`, with a custom `components.event` renderer (name +
+  status). An event's end time is `startHour + (durationMinutes ??
+  settings.slotDurationMinutes)` — most mock reservations are exactly one
+  slot long (no `durationMinutes`), but bookings made through the search
+  modal can span multiple hours.
+
+  **Why a day view, not the original week view**: the page originally
+  showed a full Monday–Sunday week (all courts × 7 days). It was changed to
+  a single selected day (all courts as sub-columns) plus a date picker, on
+  request — a call-center agent typically cares about "today" or one
+  specific date a customer asks about, not a whole week at once.
 
   **Why react-big-calendar and not FullCalendar**: FullCalendar's
   equivalent (`@fullcalendar/resource-timegrid`) is FullCalendar
   *Premium* — tri-licensed (paid commercial license / non-commercial
   CC-BY-NC-ND trial / GPLv3), none of which fit a closed-source commercial
   booking product for free. react-big-calendar's resource view is plain
-  MIT. Its day-major grouping landed in v1.16 (`resourceGroupingLayout`
-  prop, boolean) — earlier versions only supported resource-major
-  (grouping all 7 days under one resource column), which is why an older
-  library version wouldn't have worked either.
+  MIT.
 
-  Custom "◀ Previous week / Today / Next week ▶" buttons
-  (`toolbar={false}` hides react-big-calendar's own) drive a `weekOffset`
-  state that both refetches the API and recomputes the controlled `date`
-  prop (`onNavigate` is a no-op — this component, not the library, owns
-  navigation). The grid's `min`/`max`/`step` come from Settings'
-  `openHour`/`closeHour`/`slotDurationMinutes`, so changing business hours
-  in Settings changes the calendar's visible range and row height. Events
-  are color-coded by status (confirmed/pending/cancelled) via
-  `eventPropGetter`, with a custom `components.event` renderer (name +
-  status, no default time-range subtitle competing for space).
-
-  Times render 24-hour EU-style (`08:00`, not `8am`) with day/month date
-  order (`10/08`) via `dayjs.locale("en-gb")` (imported once at module
-  scope) plus explicit `formats.timeGutterFormat`/`eventTimeRangeFormat`
-  overrides — the rest of the UI stays English, only date/time formatting
-  and (see below) week alignment change. CSS overrides in `src/index.css`
-  (`.rbc-*` selectors, several needing `!important` since
+  Times render 24-hour EU-style (`08:00`, not `8am`) via
+  `dayjs.locale("en-gb")` (imported once at module scope) plus explicit
+  `formats.timeGutterFormat`/`eventTimeRangeFormat` overrides — the rest of
+  the UI stays English, only date/time formatting changes. CSS overrides in
+  `src/index.css` (`.rbc-*` selectors, several needing `!important` since
   `react-big-calendar/lib/css/react-big-calendar.css` is imported inside
-  `ReservationsPage.tsx` and can land after `index.css` in the bundle)
-  give it a more polished look: refined grid-line/today-highlight colors,
+  `ReservationsPage.tsx` and can land after `index.css` in the bundle) give
+  it a more polished look: refined grid-line/today-highlight colors,
   rounded shadowed event blocks, the library's built-in
   `.rbc-current-time-indicator` recolored to match.
-
-  **Calendar weeks, not a rolling window**: unlike
-  `booking.repository.ts`'s "today + N×7 days" pattern, both the frontend
-  (`mondayOfWeek`) and backend (`mockReservationsForWeek`, see below)
-  align `weekOffset` to real Monday–Sunday calendar weeks — required
-  because react-big-calendar's Week view always renders a full calendar
-  week for whatever `date` it's given (no custom-duration escape hatch
-  like FullCalendar had), so the two had to agree on the same convention.
-  The `en-gb` dayjs locale (`weekStart: 1`) makes the library's internal
-  week-boundary math agree with this too.
-- `src/pages/SettingsPage.tsx` — fetches `GET /api/settings` on mount, a
-  form for opening hours, slot duration, courts, and price per slot;
-  `PUT /api/settings` on save.
+- `src/pages/SettingsPage.tsx` — form for opening hours, slot duration,
+  price per slot, and **courts**: a repeatable list of `{ name, covered }`
+  rows (text input + "Covered" checkbox + remove button, "+ Add court"
+  below), not the plain comma-separated text field it used to be — courts
+  now need a covered/uncovered attribute for the
+  [booking search](#booking-search-call-center)'s field-type filter to mean
+  anything. Calls `getSettings()`/`saveSettings()` from the local mock
+  store on load/save (see [Data source](#data-source-mock-not-the-api)).
+- `src/lib/date.ts` — shared date helpers (`toDateId`/`fromDateId`
+  round-trip `<input type="date">`'s `YYYY-MM-DD` value using local
+  calendar fields, never UTC, so the picker can't shift a day depending on
+  the browser's timezone; `startOfDay`, `addDays`, `pad`). Used by
+  `ReservationsPage`, the mock reservation/availability modules, and
+  `BookingSearchModal`.
 - `src/lib/api.ts` — small `fetch` wrapper (`apiGet`/`apiPut`) against
-  `VITE_API_URL` (default `http://localhost:3000`), used by
-  Reservations/Settings. Auth instead goes through the separate axios
-  instance in `src/api/api.ts` (attaches the Bearer token from the store on
-  every request) — see Login above.
+  `VITE_API_URL`. **Currently unused** — see
+  [Data source](#data-source-mock-not-the-api). Auth instead goes through
+  the separate axios instance in `src/api/api.ts` (attaches the Bearer
+  token from the store on every request, `withCredentials: true` for the
+  refresh cookie) — see Login above.
 - Routes (`src/App.tsx`): `/auth` (login/register, redirects to
   `/reservations` if already authenticated), `/reservations` + `/settings`
-  (each individually gated on `accessToken`, redirecting to `/auth` when
-  absent), `/` and unknown paths redirect to `/reservations`.
+  (nested under `<DashboardLayout>`, each individually gated on
+  `accessToken`, redirecting to `/auth` when absent), `/` and unknown paths
+  redirect to `/reservations`.
+
+## Booking search (call-center)
+
+A "New booking" button on `ReservationsPage` opens
+`src/components/BookingSearchModal.tsx` — built for a call-center agent
+who has a customer on the phone asking for something like "Wednesday
+20:00 for 2 hours", not a specific date. Two steps:
+
+1. **Search** — filters: days of the week (multi-select chips, none =
+   every day), start time + duration (selects, driven by
+   `settings.openHour`/`closeHour`), field type (Covered / Uncovered
+   toggle chips, neither = both), field number (dropdown of registered
+   courts, default "Any field"). "Search" calls
+   `searchAvailability()` (`src/mocks/availability.mock.ts`), which scans
+   the next 4 weeks for (date, court) pairs where the requested time
+   window is free and open, using the same `mockReservationsForDay()` the
+   calendar renders — so a slot shown here is exactly what the calendar
+   would show as free. Cancelled reservations don't block a slot.
+
+   **Long-term opportunity**: if one court is free at that exact
+   weekday/time on *every* occurrence found in the 4-week window (at least
+   3), it's returned separately and rendered as a highlighted card pinned
+   **first**, above the regular per-date results — "free every Wednesday
+   for the next 4 weeks" is the point of the case this was built for.
+2. **Confirm** — clicking "Book" on either a regular result or the
+   long-term card asks for the customer's name and phone (not collected
+   during search, since the agent doesn't know which slot the customer
+   wants yet), then calls `addManualBooking()`
+   (`src/mocks/reservations.mock.ts`) once per date — one call for a
+   single slot, one call per week for a long-term booking (all N weeks
+   booked in one confirm). The parent page's `onBooked` callback
+   re-reads `mockReservationsForDay(selectedDate)` so a booking on the
+   currently-viewed date shows up on the calendar immediately.
+
+## Data source: mock, not the API
+
+**Reservations and Settings are generated entirely in the browser** —
+`src/mocks/reservations.mock.ts` and `src/mocks/settings.mock.ts` — not
+fetched from `packages/api`. Both pages still have the original
+`apiGet`/`apiPut` calls against `packages/api/src/modules/{reservations,settings}/`
+present in the file, commented out (`// old: fetched mock data through the
+backend`); the live code path calls the local mock functions instead. This
+predates the day-view/booking-search work in this doc — treat the backend
+`reservations`/`settings` modules (still present, still following the
+[module pattern](../../conventions/module-pattern/index.md), still listed
+under Endpoints below) as **orphaned**: correct in isolation, but nothing
+in `packages/web` currently calls them. Only `auth` is wired end to end
+frontend-to-backend-to-database.
+
+- `src/mocks/reservations.mock.ts` — `mockReservationsForDate(dateId)`
+  deterministically generates 2-4 reservations per day (seeded by a hash of
+  the date, walking a seeded LCG to avoid two reservations colliding on the
+  same court/hour) against a **hardcoded** `COURTS = ["Teren 1", "Teren 2",
+  "Teren 3"]` — independent of whatever courts are configured in Settings
+  (see Known gaps). `addManualBooking()` appends to a module-level
+  `manualBookings` array (bookings made through the search modal above);
+  `mockReservationsForDay(date)` merges generated + manual for that date.
+  All of it resets on page reload — nothing is persisted.
+- `src/mocks/settings.mock.ts` — a single module-level mutable
+  `CourtSettings` object (`openHour`, `closeHour`, `slotDurationMinutes`,
+  `courts: Court[]` where `Court = { name, covered }`,
+  `pricePerSlotRON`), seeded with
+  `{ 8, 22, 60, [Teren 1 (covered), Teren 2, Teren 3], 80 }`.
+  `saveSettings()` validates `openHour < closeHour`, throws otherwise.
+  Resets on page reload.
+- `src/mocks/availability.mock.ts` — pure search function over the above,
+  described under [Booking search](#booking-search-call-center).
 
 # Endpoints
 
@@ -122,7 +197,9 @@ entity" case in [Schema](../../conventions/module-pattern/schema.md)).
 `auth` is a real module backed by the `clubs` table (see
 [Database schema](../db-schema.md)) — also schema-only from the module
 pattern's perspective, since it doesn't define its own table (`clubs` lives
-in a separate `clubs` module it reads/writes).
+in a separate `clubs` module it reads/writes). **`reservations` and
+`settings` are not currently called by `packages/web`** — see
+[Data source](#data-source-mock-not-the-api) above.
 
 | Method | Path                | Handler                       |
 |--------|---------------------|--------------------------------|
@@ -131,53 +208,21 @@ in a separate `clubs` module it reads/writes).
 | POST   | `/auth/refresh`     | `refreshController` — reads the `refreshToken` cookie, rotates both tokens |
 | POST   | `/auth/logout`      | `logoutController` — clears the `refreshToken` cookie |
 | GET    | `/auth/me`          | `getMeController` — `requireAuth`-gated, returns the current club |
-| GET    | `/api/reservations` | `listReservationsController` (`?date=YYYY-MM-DD` for one day, else `?weekOffset=N` for that Monday-Sunday calendar week) |
-| GET    | `/api/settings`     | `getSettingsController`        |
-| PUT    | `/api/settings`     | `updateSettingsController`     |
-
-## Reservations
-
-`packages/api/src/modules/reservations/reservations.repository.ts` —
-deterministic mock data (same spirit as
-[the court-booking Flow](court-booking-flow.md)'s mock repository): 2-4
-reservations per day, seeded by a hash of the date so the same date always
-yields the same list, walking a seeded LCG to avoid two reservations
-colliding on the same court/hour. Courts are `"Teren 1"|"Teren 2"|"Teren 3"`,
-matching the naming already used in `booking.repository.ts`. Status is one
-of `"confirmed"|"pending"|"cancelled"`.
-
-`mockReservationsForWeek(weekOffset)` finds the Monday of the current
-calendar week (`mondayOf`), shifts it by `weekOffset * 7` days, then
-generates that Monday-Sunday week's 7 days — **not** the "today +
-weekOffset*7" rolling window `booking.repository.ts`'s `mockDatesForWeek`
-uses. The two diverge on purpose: the WhatsApp flow's rolling window suits
-a chat "next 7 days" feel, while the dashboard's calendar-week alignment
-is required by react-big-calendar's Week view (see above) and is the more
-standard mental model for an admin looking at "this week". `?date=` still
-returns a single day regardless.
-
-**Nothing here is connected to real bookings** — the WhatsApp booking
-flows still don't persist anything (see Known gaps in
-[court-booking-flow.md](court-booking-flow.md) and
-[whatsapp-messaging.md](whatsapp-messaging.md)).
-
-## Settings
-
-`packages/api/src/modules/settings/settings.repository.ts` — a single
-module-level mutable object (`openHour`, `closeHour`,
-`slotDurationMinutes`, `courts: string[]`, `pricePerSlotRON`), seeded with
-`{ 8, 22, 60, ["Teren 1","Teren 2","Teren 3"], 80 }`. `settings.service.ts`
-validates `openHour < closeHour` (on top of the Zod bounds in
-`settings.schema.ts`) and throws `httpError(400, ...)` otherwise.
+| GET    | `/api/reservations` | `listReservationsController` (`?date=YYYY-MM-DD` for one day, else `?weekOffset=N` for that Monday-Sunday calendar week) — unused by the frontend today |
+| GET    | `/api/settings`     | `getSettingsController` — unused by the frontend today |
+| PUT    | `/api/settings`     | `updateSettingsController` — unused by the frontend today |
 
 # Enabling changes
 
 These didn't exist before this feature despite being documented in
 [shared utilities](../../conventions/shared-utilities/index.md):
 
-- `packages/api/src/shared/utils/http-error.ts` and
-  `packages/api/src/shared/middleware/error.middleware.ts` — added exactly
-  as documented, registered last in `app.ts`.
+- `packages/api/src/shared/http-error.ts` and
+  `packages/api/src/shared/middleware/error.middleware.ts` — registered
+  last in `app.ts`. (Note: the convention doc's example path is
+  `shared/utils/http-error.ts`; the actual file lives directly under
+  `shared/`, one level up from where the convention shows it — pre-existing
+  drift, left as-is rather than moved as a side effect of unrelated work.)
 - `cors` (new dependency) restricted to `env.CLIENT_URL` (new env var,
   default `http://localhost:5173`), so the Vite dev server can call the
   API cross-origin.
@@ -190,16 +235,14 @@ These didn't exist before this feature despite being documented in
 ```
 Browser (packages/web)              TenisBot API
    |  POST /auth/register/login --> |  auth.router -> clubs table (argon2)
-   |  POST /auth/refresh --------> |  verify refreshToken cookie -> rotate tokens
-   |  POST /auth/logout ---------> |  clear refreshToken cookie
-   |  GET /api/reservations ----->|  reservations.router -> mock list
-   |  GET /api/settings ---------> |  settings.router -> in-memory object
-   |  PUT /api/settings ---------> |  validate -> update in-memory object
+   |  POST /auth/refresh ---------> |  verify refreshToken cookie -> rotate tokens
+   |  POST /auth/logout ----------> |  clear refreshToken cookie
 ```
 
-Auth is the only part of this feature that touches the database (the
-`clubs` table); Reservations/Settings are still mock/in-memory — see Known
-gaps.
+Reservations, Settings, and the booking search are entirely client-side
+(see [Data source](#data-source-mock-not-the-api)) — no requests leave the
+browser for them. Auth is the only part of this feature that touches the
+network or the database (the `clubs` table).
 
 # Config
 
@@ -208,41 +251,34 @@ gaps.
   required to sign/verify access + refresh tokens, see
   [token strategy](../../conventions/auth/token-strategy.md)).
 - `packages/web`: `VITE_API_URL` (default `http://localhost:3000`, see
-  `.env.example`).
-- **Port 3000 conflicts are a real gotcha in dev.** `PORT` (api) defaults
-  to `3000` per `.env.example`, but on a machine where something else
-  (observed: a Docker Desktop container) already owns that port, requests
-  can silently hit the other service instead of erroring — the dashboard
-  just shows no data, no obvious error. If reservations/settings don't
-  load, check what's actually listening on the configured `PORT` before
-  assuming the app is broken; picking a free port for `PORT` in
-  `packages/api/.env` and matching it in `packages/web/.env`'s
-  `VITE_API_URL` resolves it. Both `.env` files are local/gitignored, not
-  committed defaults.
+  `.env.example`) — only used by the auth axios instance now; the
+  `apiGet`/`apiPut` wrapper that also reads it is currently dead code (see
+  [Data source](#data-source-mock-not-the-api)).
 
 # Known gaps
 
-- **`DashboardLayout` isn't mounted.** `src/components/DashboardLayout.tsx`
-  (sidebar nav + working logout) exists and is correct, but `App.tsx`
-  routes `/reservations`/`/settings` straight to the page components with
-  no layout wrapper, so the sidebar and logout button don't currently
-  render anywhere. Predates this login rework; needs `App.tsx`'s routes
-  nested under `<DashboardLayout>` (or similar) to actually show it.
+- **Reservations/Settings are frontend-only mock data**, not fetched from
+  the backend at all (see [Data source](#data-source-mock-not-the-api)) —
+  resets on every page reload, and the backend `reservations`/`settings`
+  modules are effectively orphaned. Booking search inherits this: manual
+  bookings only live as long as the tab does.
+- **`reservations.mock.ts`'s court list is hardcoded**
+  (`["Teren 1", "Teren 2", "Teren 3"]`), independent of the courts actually
+  configured in Settings. Renaming a court, or adding/removing one, in
+  Settings does not affect which courts the generated (non-manual)
+  reservations use — a renamed/new court will simply always show as fully
+  available in searches and on the calendar, since no generated
+  reservation ever references it. Manual bookings via the search modal use
+  whatever court name Settings has at booking time, so they're unaffected.
 - Registration is fully open — anyone who reaches `/auth` can create a new
   club (`POST /auth/register`), there's no invite/approval step or email
   verification.
-- **Reservations are mock/in-memory**, regenerated fresh on every request
-  (deterministic per date, not stored) — there is no reservations table
-  yet (see [Database schema](../db-schema.md)) and no link to the actual
-  WhatsApp booking flows.
-- **Settings are in-memory** — a single process-lifetime object, resets on
-  every server restart, not persisted to the database, not actually used
-  by the booking flows to compute availability.
-- No `.test.ts` for either new module — this repo doesn't have a test
-  runner (vitest) set up yet, same gap noted in
+- No `.test.ts` for either backend mock module — this repo doesn't have a
+  test runner (vitest) set up yet, same gap noted in
   [whatsapp-messaging.md](whatsapp-messaging.md) and
-  [court-booking-flow.md](court-booking-flow.md).
-- No click-to-create — the calendar is read-only, no way to add/edit/
-  cancel a reservation from the dashboard yet.
-- With enough courts the grid gets wide (courts × 7 days of columns) and
-  needs horizontal scrolling — no responsive/mobile layout for it yet.
+  [court-booking-flow.md](court-booking-flow.md). No frontend tests either.
+- No click-to-create from the calendar grid itself — creating a
+  reservation only happens through the booking search modal, not by
+  clicking a slot directly.
+- With enough courts the grid gets wide (one column per court) and needs
+  horizontal scrolling — no responsive/mobile layout for it yet.

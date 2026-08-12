@@ -16,8 +16,7 @@ graph LR
   API -- "POST .../messages (sendText/sendFlow)" --> WA
   WA -- "POST /flow (encrypted, per screen)" --> API
   API -- "upsert on every message" --> DB[(Postgres — Neon)]
-  WEB[Admin dashboard — packages/web] -- "GET /api/reservations, GET/PUT /api/settings" --> API
-  WEB -- "POST /auth/register, /auth/login, /auth/refresh, /auth/logout" --> API
+  WEB[Admin dashboard — packages/web] -- "POST /auth/register, /auth/login, /auth/refresh, /auth/logout" --> API
   API -- "read/write clubs" --> DB
 ```
 
@@ -35,11 +34,13 @@ graph LR
   new conversations, and `clubs`, one row per admin-dashboard tenant,
   read/written by the auth module. See [Database schema](/db-schema.md).
 - `packages/web` is a Vite/React admin dashboard (login/register,
-  Reservations, Settings) that calls the API over plain HTTP/CORS — see
-  [Admin dashboard](/features/admin-dashboard.md). Auth
-  (register/login/refresh/logout) is real, backed by the `clubs` table and
-  JWTs; Reservations and Settings still call mock/in-memory endpoints, not
-  the database.
+  Reservations, Settings, a call-center booking search) — see
+  [Admin dashboard](/features/admin-dashboard.md). Only auth
+  (register/login/refresh/logout) calls the API, over plain HTTP/CORS, and
+  is real, backed by the `clubs` table and JWTs. Reservations, Settings,
+  and the booking search are generated entirely client-side (mock data);
+  they no longer call the API at all (the backend's `reservations`/
+  `settings` modules still exist but are unused by the frontend).
 
 # Update policy
 
