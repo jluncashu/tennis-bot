@@ -2,4 +2,4 @@
 
 * [WhatsApp messaging](whatsapp-messaging.md) - webhook verification and dispatch (new-conversation intro, flow trigger, flow completion)
 * [Court booking (WhatsApp Flow)](court-booking-flow.md) - the 4-screen day/slot/field/confirm booking Flow, mock data for now
-* [Admin dashboard](admin-dashboard.md) - login-gated web dashboard (packages/web) with real JWT auth; Reservations (day view + date picker), Settings, and a call-center booking search are all client-side mock data, not fetched from the API
+* [Admin dashboard](admin-dashboard.md) - login-gated web dashboard (packages/web) with real JWT auth; Reservations (day view + date picker, click to edit or book a slot), Settings (courts, price ranges), and a call-center booking search are all client-side mock data, not fetched from the API

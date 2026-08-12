@@ -54,6 +54,15 @@
    column's actual edge — drop it so a booking fills the whole column. */
 .rbc-day-slot .rbc-events-container {
   margin-right: 0 !important;
+  /* This container spans the whole column (empty or not) and sits above
+     the per-hour slot cells, so it swallows :hover on empty slots below
+     it. Let hover/click pass through everywhere except the events
+     themselves, which opt back in. */
+  pointer-events: none;
+}
+
+.rbc-day-slot .rbc-events-container .rbc-event {
+  pointer-events: auto;
 }
 
 .rbc-event-label {
@@ -67,4 +76,16 @@
 .rbc-resource-grouping .rbc-header {
   font-size: 0.7rem;
   color: #475569; /* slate-600 */
+}
+
+/* Hover feedback on an empty (bookable) slot — an event sits above this
+   background cell and captures the hover itself, so this only lights up
+   where there's nothing booked yet. Matches exactly the one cell a click
+   would select (timeslots={1}, so one .rbc-time-slot = one step). */
+.rbc-day-slot .rbc-time-slot {
+  cursor: pointer;
+}
+
+.rbc-day-slot .rbc-time-slot:hover {
+  background-color: #d1fae5; /* emerald-100 */
 }

@@ -8,12 +8,21 @@ export interface Court {
   covered: boolean;
 }
 
+export interface PriceRange {
+  id: string;
+  daysOfWeek: number[]; // 0=Sun..6=Sat, matches WeekdayPicker
+  startHour: number;
+  endHour: number;
+  pricePerSlotRON: number;
+}
+
 export interface CourtSettings {
   openHour: number;
   closeHour: number;
   slotDurationMinutes: number;
   courts: Court[];
-  pricePerSlotRON: number;
+  pricePerSlotRON: number; // default/base price, used where no range below applies
+  priceRanges: PriceRange[];
 }
 
 let currentSettings: CourtSettings = {
@@ -26,7 +35,30 @@ let currentSettings: CourtSettings = {
     { name: "Teren 3", covered: false },
   ],
   pricePerSlotRON: 80,
+  priceRanges: [],
 };
+
+let priceRangeCounter = 0;
+
+export function addPriceRange(range: Omit<PriceRange, "id">): PriceRange {
+  const newRange: PriceRange = { ...range, id: `price_${++priceRangeCounter}` };
+  currentSettings = { ...currentSettings, priceRanges: [...currentSettings.priceRanges, newRange] };
+  return newRange;
+}
+
+export function updatePriceRange(id: string, patch: Omit<PriceRange, "id">): void {
+  currentSettings = {
+    ...currentSettings,
+    priceRanges: currentSettings.priceRanges.map((r) => (r.id === id ? { ...patch, id } : r)),
+  };
+}
+
+export function removePriceRange(id: string): void {
+  currentSettings = {
+    ...currentSettings,
+    priceRanges: currentSettings.priceRanges.filter((r) => r.id !== id),
+  };
+}
 
 export function getSettings(): CourtSettings {
   return currentSettings;

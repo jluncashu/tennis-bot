@@ -4,10 +4,16 @@ import dayjs from "dayjs";
 import "dayjs/locale/en-gb";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 // import { apiGet } from "../lib/api"; // old: fetched mock data from the backend
-import { mockReservationsForDay, type Reservation, type ReservationStatus } from "../mocks/reservations.mock";
+import {
+  mockReservationsForDay,
+  updateReservation,
+  type Reservation,
+  type ReservationStatus,
+} from "../mocks/reservations.mock";
 import { getSettings, type CourtSettings } from "../mocks/settings.mock";
 import { addDays, fromDateId, pad, startOfDay, toDateId } from "../lib/date";
 import { BookingSearchModal } from "../components/BookingSearchModal";
+import { ReservationDetailsModal } from "../components/ReservationDetailsModal";
 
 // en-gb: 24-hour time formats.
 dayjs.locale("en-gb");
@@ -81,6 +87,22 @@ export function ReservationsPage() {
   const [reservationsError] = useState<string | null>(null);
 
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
+  const [bookingModalKey, setBookingModalKey] = useState(0);
+  const [quickBook, setQuickBook] = useState<{
+    date: string;
+    startHour: number;
+    courtName: string;
+    maxDurationMinutes: number;
+  } | null>(null);
+  const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
+
+  // Forces a fresh BookingSearchModal instance every time it's opened (fresh
+  // filters/results state), whether via "New booking" or a slot click.
+  function openBookingModal(quick: typeof quickBook) {
+    setQuickBook(quick);
+    setBookingModalKey((k) => k + 1);
+    setBookingModalOpen(true);
+  }
 
   // Old: fetched mock data from the backend.
   // useEffect(() => {
@@ -122,6 +144,7 @@ export function ReservationsPage() {
   const error = settingsError ?? reservationsError;
   const loading = !error && (!settings || reservations === null);
   const isToday = selectedDate.getTime() === startOfDay(new Date()).getTime();
+  const selectedReservation = reservations?.find((r) => r.id === selectedReservationId) ?? null;
 
   return (
     <div>
@@ -132,7 +155,7 @@ export function ReservationsPage() {
         </div>
         <button
           type="button"
-          onClick={() => setBookingModalOpen(true)}
+          onClick={() => openBookingModal(null)}
           className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         >
           New booking
@@ -141,10 +164,24 @@ export function ReservationsPage() {
 
       {settings && (
         <BookingSearchModal
+          key={bookingModalKey}
           open={bookingModalOpen}
           onClose={() => setBookingModalOpen(false)}
           settings={settings}
           onBooked={() => setReservations(mockReservationsForDay(selectedDate))}
+          quickBook={quickBook}
+        />
+      )}
+
+      {selectedReservation && (
+        <ReservationDetailsModal
+          reservation={selectedReservation}
+          onClose={() => setSelectedReservationId(null)}
+          onSave={(status) => {
+            updateReservation(selectedReservation.id, { status });
+            setReservations(mockReservationsForDay(selectedDate));
+            setSelectedReservationId(null);
+          }}
         />
       )}
 
@@ -218,6 +255,27 @@ export function ReservationsPage() {
               eventPropGetter={(event) => ({
                 style: { backgroundColor: STATUS_COLORS[(event as CalendarEvent).status], color: "#fff" },
               })}
+              onSelectEvent={(event) => setSelectedReservationId((event as CalendarEvent).id)}
+              selectable
+              onSelectSlot={(slotInfo) => {
+                const court = settings.courts.find((c) => c.name === slotInfo.resourceId);
+                if (!court || !reservations) return;
+                const startHour = slotInfo.start.getHours();
+
+                // Cap duration to how far this slot is actually free: up to
+                // the next active reservation on this court/date, or closing
+                // time if there isn't one.
+                const nextBlockingHour = reservations
+                  .filter((r) => r.court === court.name && r.status !== "cancelled" && r.startHour > startHour)
+                  .reduce((min, r) => Math.min(min, r.startHour), settings.closeHour);
+
+                openBookingModal({
+                  date: toDateId(selectedDate),
+                  startHour,
+                  courtName: court.name,
+                  maxDurationMinutes: (nextBlockingHour - startHour) * 60,
+                });
+              }}
               components={{ event: EventContent }}
               style={{ height: 700 }}
             />

@@ -1,8 +1,8 @@
 ---
 type: Feature
 title: Admin dashboard
-description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar day grid with a date picker, all courts as sub-columns), Settings, and a call-center availability/booking search — real JWT-backed auth, but Reservations/Settings data is generated entirely client-side (mock modules), not fetched from the API.
-tags: [web, admin, dashboard, reservations, settings, calendar, auth, booking-search]
+description: A login-gated web dashboard (packages/web) for managing court Reservations (react-big-calendar day grid with a date picker, click a reservation to edit its status, click an empty slot to book it directly), Settings (courts, and per-day/time price ranges), and a call-center availability/booking search — real JWT-backed auth, but Reservations/Settings data is generated entirely client-side (mock modules), not fetched from the API.
+tags: [web, admin, dashboard, reservations, settings, calendar, auth, booking-search, pricing]
 resource: packages/web/src/App.tsx
 status: stable
 generated: { by: claude-code/sonnet-5, at: 2026-08-12T00:00:00Z }
@@ -13,7 +13,9 @@ generated: { by: claude-code/sonnet-5, at: 2026-08-12T00:00:00Z }
 A single-page admin app in `packages/web` (Vite + React + TypeScript +
 Tailwind + React Router), previously an empty placeholder. It gates access
 behind a login/register page, then (once authenticated) shows
-**Reservations**, **Settings**, and a call-center **booking search**.
+**Reservations** (view/edit existing bookings, book empty slots directly),
+**Settings** (courts and price ranges), and a call-center **booking
+search**.
 
 ## Login (real auth)
 
@@ -72,6 +74,35 @@ itself worked fine over curl.
   slot long (no `durationMinutes`), but bookings made through the search
   modal can span multiple hours.
 
+  **Clicking a reservation** (`onSelectEvent`) opens
+  `src/components/ReservationDetailsModal.tsx` — client name, phone (both
+  read-only), and a status dropdown (confirmed/pending/cancelled) with a
+  Save button. Saving calls `updateReservation(id, { status })`
+  (`src/mocks/reservations.mock.ts`), which can't mutate the reservation
+  object directly (see [Data source](#data-source-mock-not-the-api) — it's
+  regenerated fresh from a hash on every read) so it's kept in a separate
+  `overrides: Map<id, patch>` and reapplied after generation; this covers
+  both generated and manually-booked reservations through one code path.
+
+  **Clicking an empty slot** (`selectable` + `onSelectSlot`) skips the
+  booking-search flow entirely and opens `BookingSearchModal` directly in
+  its `quick` step (see [Booking search](#booking-search-call-center)) for
+  that exact date/court/time — the agent doesn't need to search for
+  something the calendar already shows is free. `ReservationsPage`
+  computes how far the slot is actually free (the next non-cancelled
+  reservation's start hour on that court that day, or closing time) and
+  passes it as `maxDurationMinutes`, so the modal's duration dropdown can
+  never offer a length that would collide with what's already booked.
+
+  **Hover feedback**: `src/index.css` sets `.rbc-day-slot .rbc-time-slot`
+  to highlight (`emerald-100`) and show a pointer cursor on hover, scoped
+  to exactly the one-hour cell a click would select. This requires
+  `.rbc-day-slot .rbc-events-container` (an absolutely-positioned overlay
+  spanning the whole column, empty or not) to be `pointer-events: none`
+  with `.rbc-event` opted back into `pointer-events: auto` — otherwise the
+  overlay sits on top of empty cells and swallows the hover/click before it
+  reaches them.
+
   **Why a day view, not the original week view**: the page originally
   showed a full Monday–Sunday week (all courts × 7 days). It was changed to
   a single selected day (all courts as sub-columns) plus a date picker, on
@@ -96,13 +127,19 @@ itself worked fine over curl.
   rounded shadowed event blocks, the library's built-in
   `.rbc-current-time-indicator` recolored to match.
 - `src/pages/SettingsPage.tsx` — form for opening hours, slot duration,
-  price per slot, and **courts**: a repeatable list of `{ name, covered }`
-  rows (text input + "Covered" checkbox + remove button, "+ Add court"
-  below), not the plain comma-separated text field it used to be — courts
-  now need a covered/uncovered attribute for the
+  default price per slot, and **courts**: a repeatable list of
+  `{ name, covered }` rows (text input + "Covered" checkbox + remove
+  button, "+ Add court" below), not the plain comma-separated text field it
+  used to be — courts now need a covered/uncovered attribute for the
   [booking search](#booking-search-call-center)'s field-type filter to mean
   anything. Calls `getSettings()`/`saveSettings()` from the local mock
   store on load/save (see [Data source](#data-source-mock-not-the-api)).
+  Below the form, a separate **price ranges** list — see
+  [Price ranges](#price-ranges).
+- `src/components/WeekdayPicker.tsx` — the Mon–Sun multi-select chip row
+  (`WEEKDAYS` constant + toggle buttons), extracted so `BookingSearchModal`
+  and `PriceRangeModal` share the exact same days-of-week control instead
+  of two copies drifting apart.
 - `src/lib/date.ts` — shared date helpers (`toDateId`/`fromDateId`
   round-trip `<input type="date">`'s `YYYY-MM-DD` value using local
   calendar fields, never UTC, so the picker can't shift a day depending on
@@ -123,10 +160,25 @@ itself worked fine over curl.
 
 ## Booking search (call-center)
 
-A "New booking" button on `ReservationsPage` opens
-`src/components/BookingSearchModal.tsx` — built for a call-center agent
-who has a customer on the phone asking for something like "Wednesday
-20:00 for 2 hours", not a specific date. Two steps:
+`src/components/BookingSearchModal.tsx` has two independent entry points,
+both from `ReservationsPage`, opening the modal on a different `step`:
+
+- **"New booking" button** → `step: "search"` (below) — built for a
+  call-center agent who has a customer on the phone asking for something
+  like "Wednesday 20:00 for 2 hours", not a specific date.
+- **Clicking an empty calendar slot** → `step: "quick"` — the date, court,
+  and start time are already known from the click, so it skips search
+  entirely: a summary of what was clicked, an editable duration (capped to
+  what's actually free — see `ReservationsPage` above), customer name/phone,
+  and a "Book" button that calls `addManualBooking()` directly. No search,
+  no long-term detection — just booking the exact slot that was clicked.
+
+Both entry points reuse the same `resetAndClose`/`booked` success-state
+machinery; `ReservationsPage` remounts the modal with a fresh `key` on every
+open (`bookingModalKey`) so leftover search results or a previous quick-book
+context never leak into the next open.
+
+The search flow (two steps):
 
 1. **Search** — filters: days of the week (multi-select chips, none =
    every day), start time + duration (selects, driven by
@@ -176,17 +228,52 @@ frontend-to-backend-to-database.
   "Teren 3"]` — independent of whatever courts are configured in Settings
   (see Known gaps). `addManualBooking()` appends to a module-level
   `manualBookings` array (bookings made through the search modal above);
-  `mockReservationsForDay(date)` merges generated + manual for that date.
-  All of it resets on page reload — nothing is persisted.
+  `updateReservation(id, patch)` instead writes into a separate
+  `overrides: Map<id, patch>` (see the reservation-edit note under
+  `ReservationsPage` above — a generated reservation has no stable object
+  identity to mutate). `mockReservationsForDay(date)` merges generated +
+  manual, then reapplies any override, for that date. All of it resets on
+  page reload — nothing is persisted.
 - `src/mocks/settings.mock.ts` — a single module-level mutable
   `CourtSettings` object (`openHour`, `closeHour`, `slotDurationMinutes`,
   `courts: Court[]` where `Court = { name, covered }`,
-  `pricePerSlotRON`), seeded with
-  `{ 8, 22, 60, [Teren 1 (covered), Teren 2, Teren 3], 80 }`.
+  `pricePerSlotRON` default price, `priceRanges: PriceRange[]` — see
+  [Price ranges](#price-ranges)), seeded with
+  `{ 8, 22, 60, [Teren 1 (covered), Teren 2, Teren 3], 80, [] }`.
   `saveSettings()` validates `openHour < closeHour`, throws otherwise.
   Resets on page reload.
 - `src/mocks/availability.mock.ts` — pure search function over the above,
   described under [Booking search](#booking-search-call-center).
+
+## Price ranges
+
+Below the main Settings form, a **price ranges** list overrides the
+default `pricePerSlotRON` for specific days/times — e.g. a higher weekend
+rate. Each `PriceRange` (`src/mocks/settings.mock.ts`) is
+`{ id, daysOfWeek, startHour, endHour, pricePerSlotRON }`, created/edited
+through `src/components/PriceRangeModal.tsx` (days via `WeekdayPicker`,
+From/To hour selects bounded by `settings.openHour`/`closeHour`, a price
+input) — the same modal component for both create (`editing: null`) and
+edit (`editing: PriceRange`), reused exactly as requested rather than two
+near-identical forms.
+
+**Persisted independently of the main form, on every add/edit/delete** —
+`addPriceRange`/`updatePriceRange`/`removePriceRange` mutate
+`currentSettings.priceRanges` immediately, not gated behind the main form's
+"Save changes" button. This was a deliberate fix, not the obvious approach:
+`SettingsPage`'s main form used to build its save payload as
+`{ ...settings, courts: cleanedCourts }`, spreading the whole (possibly
+stale, since price ranges are edited through their own modal) `settings`
+state — clicking "Save changes" after adding a price range in the same
+session would have silently reverted it. `handleSubmit` now lists the
+fields it actually owns (`openHour`, `closeHour`, `slotDurationMinutes`,
+`courts`, `pricePerSlotRON`) instead of spreading, so it can never touch
+`priceRanges`.
+
+**Not consumed anywhere yet** — no overlap validation between ranges, and
+nothing (the calendar, the booking search, a manual booking) currently
+computes an actual price from these ranges; they're pure settings data at
+this point, same as the rest of Settings (see Known gaps).
 
 # Endpoints
 
@@ -260,8 +347,8 @@ network or the database (the `clubs` table).
 - **Reservations/Settings are frontend-only mock data**, not fetched from
   the backend at all (see [Data source](#data-source-mock-not-the-api)) —
   resets on every page reload, and the backend `reservations`/`settings`
-  modules are effectively orphaned. Booking search inherits this: manual
-  bookings only live as long as the tab does.
+  modules are effectively orphaned. Booking search, reservation-status
+  edits, and price ranges all inherit this: nothing outlives the tab.
 - **`reservations.mock.ts`'s court list is hardcoded**
   (`["Teren 1", "Teren 2", "Teren 3"]`), independent of the courts actually
   configured in Settings. Renaming a court, or adding/removing one, in
@@ -270,6 +357,13 @@ network or the database (the `clubs` table).
   available in searches and on the calendar, since no generated
   reservation ever references it. Manual bookings via the search modal use
   whatever court name Settings has at booking time, so they're unaffected.
+- **Price ranges have no overlap check** and aren't consumed by anything
+  yet (see [Price ranges](#price-ranges)) — two ranges can cover the same
+  day/time with different prices, and no screen currently reads
+  `priceRanges` to price an actual booking.
+- `ReservationDetailsModal` only edits **status** — client name/phone are
+  shown read-only; there's no way to correct a typo'd name or phone from
+  the dashboard.
 - Registration is fully open — anyone who reaches `/auth` can create a new
   club (`POST /auth/register`), there's no invite/approval step or email
   verification.
@@ -277,8 +371,5 @@ network or the database (the `clubs` table).
   test runner (vitest) set up yet, same gap noted in
   [whatsapp-messaging.md](whatsapp-messaging.md) and
   [court-booking-flow.md](court-booking-flow.md). No frontend tests either.
-- No click-to-create from the calendar grid itself — creating a
-  reservation only happens through the booking search modal, not by
-  clicking a slot directly.
 - With enough courts the grid gets wide (one column per court) and needs
   horizontal scrolling — no responsive/mobile layout for it yet.

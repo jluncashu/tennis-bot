@@ -8,23 +8,27 @@ import {
 } from "../mocks/availability.mock";
 import { addManualBooking } from "../mocks/reservations.mock";
 import type { CourtSettings } from "../mocks/settings.mock";
+import { WeekdayPicker } from "./WeekdayPicker";
+
+interface QuickBookContext {
+  date: string; // YYYY-MM-DD, the exact clicked date — not a weekday pattern
+  startHour: number;
+  courtName: string;
+  // How far the duration can extend before it would run into the next
+  // reservation on this court/date (or closing time).
+  maxDurationMinutes: number;
+}
 
 interface BookingSearchModalProps {
   open: boolean;
   onClose: () => void;
   settings: CourtSettings;
   onBooked: () => void;
+  // Set when opened by clicking an empty calendar slot: date, start time,
+  // and field are already known, so the modal skips search entirely and
+  // goes straight to booking that exact slot — only duration is editable.
+  quickBook?: QuickBookContext | null;
 }
-
-const WEEKDAYS = [
-  { value: 1, label: "Mon" },
-  { value: 2, label: "Tue" },
-  { value: 3, label: "Wed" },
-  { value: 4, label: "Thu" },
-  { value: 5, label: "Fri" },
-  { value: 6, label: "Sat" },
-  { value: 0, label: "Sun" },
-];
 
 const DURATIONS = [30, 60, 90, 120, 150, 180];
 
@@ -40,13 +44,25 @@ function formatHour(hour: number): string {
   return `${hour.toString().padStart(2, "0")}:00`;
 }
 
-type Step = "search" | "confirm";
+type Step = "search" | "confirm" | "quick";
 type BookingTarget = { kind: "single"; slot: AvailabilitySlot } | { kind: "long-term"; opportunity: LongTermOpportunity };
 
-export function BookingSearchModal({ open, onClose, settings, onBooked }: BookingSearchModalProps) {
+export function BookingSearchModal({ open, onClose, settings, onBooked, quickBook = null }: BookingSearchModalProps) {
+  const quickCourt = quickBook ? settings.courts.find((c) => c.name === quickBook.courtName) : undefined;
+
+  // Only durations that actually fit before the next reservation (or
+  // closing time) are offered — always includes at least the max itself.
+  const quickDurationOptions = useMemo(() => {
+    if (!quickBook) return DURATIONS;
+    const opts = DURATIONS.filter((d) => d <= quickBook.maxDurationMinutes);
+    return opts.length > 0 ? opts : [quickBook.maxDurationMinutes];
+  }, [quickBook]);
+
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([]);
   const [startHour, setStartHour] = useState(settings.openHour);
-  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [durationMinutes, setDurationMinutes] = useState(() =>
+    quickBook ? quickDurationOptions[quickDurationOptions.length - 1] : 60
+  );
   const [courtType, setCourtType] = useState<Set<Exclude<CourtTypeFilter, "any">>>(new Set());
   const [courtName, setCourtName] = useState<string | null>(null);
 
@@ -54,7 +70,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked }: Bookin
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [longTerm, setLongTerm] = useState<LongTermOpportunity | null>(null);
 
-  const [step, setStep] = useState<Step>("search");
+  const [step, setStep] = useState<Step>(quickBook ? "quick" : "search");
   const [target, setTarget] = useState<BookingTarget | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -71,7 +87,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked }: Bookin
   if (!open) return null;
 
   function resetAndClose() {
-    setStep("search");
+    setStep(quickBook ? "quick" : "search");
     setTarget(null);
     setCustomerName("");
     setCustomerPhone("");
@@ -143,12 +159,32 @@ export function BookingSearchModal({ open, onClose, settings, onBooked }: Bookin
     onBooked();
   }
 
+  function confirmQuickBook() {
+    if (!quickBook || !customerName.trim() || !customerPhone.trim()) return;
+    addManualBooking({
+      date: quickBook.date,
+      startHour: quickBook.startHour,
+      durationMinutes,
+      court: quickBook.courtName,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+    });
+    setBooked(true);
+    onBooked();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">
-            {step === "search" ? "Find a reservation" : booked ? "Booked" : "Confirm booking"}
+            {booked
+              ? "Booked"
+              : step === "search"
+                ? "Find a reservation"
+                : step === "quick"
+                  ? "Book slot"
+                  : "Confirm booking"}
           </h2>
           <button
             type="button"
@@ -160,25 +196,97 @@ export function BookingSearchModal({ open, onClose, settings, onBooked }: Bookin
           </button>
         </div>
 
+        {step === "quick" && quickBook && !booked && (
+          <div className="space-y-4 px-6 py-5">
+            <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">
+                {quickBook.courtName}
+                {quickCourt ? ` (${quickCourt.covered ? "covered" : "uncovered"})` : ""}
+              </p>
+              <p>
+                {dayjs(quickBook.date).format("dddd, DD MMM YYYY")} · from {formatHour(quickBook.startHour)}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="quickDuration" className="block text-sm font-medium text-slate-700">
+                Duration
+              </label>
+              <select
+                id="quickDuration"
+                value={durationMinutes}
+                onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                {quickDurationOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {formatDuration(m)}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Free until {formatHour(quickBook.startHour + quickBook.maxDurationMinutes / 60)}.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="quickCustomerName" className="block text-sm font-medium text-slate-700">
+                Customer name
+              </label>
+              <input
+                id="quickCustomerName"
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="quickCustomerPhone" className="block text-sm font-medium text-slate-700">
+                Customer phone
+              </label>
+              <input
+                id="quickCustomerPhone"
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={confirmQuickBook}
+              disabled={!customerName.trim() || !customerPhone.trim()}
+              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Book
+            </button>
+          </div>
+        )}
+
+        {step === "quick" && quickBook && booked && (
+          <div className="space-y-4 px-6 py-5">
+            <p className="text-sm text-emerald-700">
+              Booked {quickBook.courtName} for {customerName} on {dayjs(quickBook.date).format("DD MMM")} at{" "}
+              {formatHour(quickBook.startHour)} ({formatDuration(durationMinutes)}).
+            </p>
+            <button
+              type="button"
+              onClick={resetAndClose}
+              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Done
+            </button>
+          </div>
+        )}
+
         {step === "search" && (
           <div className="space-y-5 px-6 py-5">
             <div>
               <span className="block text-sm font-medium text-slate-700">Days of the week</span>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {WEEKDAYS.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => toggleDay(d.value)}
-                    className={`rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-inset ${
-                      daysOfWeek.includes(d.value)
-                        ? "bg-emerald-600 text-white ring-emerald-600"
-                        : "text-slate-600 ring-slate-300 hover:bg-slate-100"
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
+              <div className="mt-2">
+                <WeekdayPicker selected={daysOfWeek} onToggle={toggleDay} />
               </div>
               <p className="mt-1 text-xs text-slate-500">None selected searches every day.</p>
             </div>

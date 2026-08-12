@@ -1,6 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
 // import { apiGet, apiPut } from "../lib/api"; // old: fetched/saved mock data through the backend
-import { getSettings, saveSettings, type Court, type CourtSettings } from "../mocks/settings.mock";
+import {
+  getSettings,
+  removePriceRange,
+  saveSettings,
+  type Court,
+  type CourtSettings,
+  type PriceRange,
+} from "../mocks/settings.mock";
+import { WEEKDAYS } from "../components/WeekdayPicker";
+import { PriceRangeModal } from "../components/PriceRangeModal";
+import { pad } from "../lib/date";
 
 // interface CourtSettings {
 //   openHour: number;
@@ -14,6 +24,16 @@ const SLOT_DURATIONS = [30, 60, 90, 120];
 
 let nextNewCourtNum = 1;
 
+function formatHour(hour: number): string {
+  return `${pad(hour)}:00`;
+}
+
+function formatDays(days: number[]): string {
+  return WEEKDAYS.filter((d) => days.includes(d.value))
+    .map((d) => d.label)
+    .join(", ");
+}
+
 export function SettingsPage() {
   const [settings, setSettings] = useState<CourtSettings | null>(null);
   const [courts, setCourts] = useState<Court[]>([]);
@@ -21,6 +41,25 @@ export function SettingsPage() {
   const [loadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [priceModalOpen, setPriceModalOpen] = useState(false);
+  const [priceModalKey, setPriceModalKey] = useState(0);
+  const [editingRange, setEditingRange] = useState<PriceRange | null>(null);
+
+  function refreshSettings() {
+    setSettings(getSettings());
+  }
+
+  function openPriceModal(range: PriceRange | null) {
+    setEditingRange(range);
+    setPriceModalKey((k) => k + 1);
+    setPriceModalOpen(true);
+  }
+
+  function handleDeleteRange(id: string) {
+    removePriceRange(id);
+    refreshSettings();
+  }
 
   // Old: fetched/saved mock data through the backend.
   // useEffect(() => {
@@ -79,7 +118,16 @@ export function SettingsPage() {
     setSaveState("saving");
     setSaveError(null);
     try {
-      const updated = saveSettings({ ...settings, courts: cleanedCourts });
+      // Deliberately not spreading `...settings`: price ranges are saved
+      // independently (their own CRUD, immediate), and settings here can be
+      // stale with respect to them — only patch the fields this form owns.
+      const updated = saveSettings({
+        openHour: settings.openHour,
+        closeHour: settings.closeHour,
+        slotDurationMinutes: settings.slotDurationMinutes,
+        courts: cleanedCourts,
+        pricePerSlotRON: settings.pricePerSlotRON,
+      });
       setSettings(updated);
       setCourts(updated.courts);
       setSaveState("saved");
@@ -195,8 +243,9 @@ export function SettingsPage() {
 
           <div>
             <label htmlFor="price" className="block text-sm font-medium text-slate-700">
-              Price per slot (RON)
+              Default price per slot (RON)
             </label>
+            <p className="mt-0.5 text-xs text-slate-500">Used when no price range below covers a booking.</p>
             <input
               id="price"
               type="number"
@@ -218,6 +267,73 @@ export function SettingsPage() {
             {saveState === "saving" ? "Saving…" : "Save changes"}
           </button>
         </form>
+      )}
+
+      {settings && (
+        <div className="mt-6 max-w-md rounded-lg border border-slate-200 bg-white p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Price ranges</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Override the default price for specific days and time windows.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openPriceModal(null)}
+              className="shrink-0 text-sm font-medium text-emerald-600 hover:text-emerald-700"
+            >
+              + Add price range
+            </button>
+          </div>
+
+          {settings.priceRanges.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500">No price ranges yet — the default price applies to every booking.</p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {settings.priceRanges.map((range) => (
+                <li
+                  key={range.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {formatDays(range.daysOfWeek)} · {formatHour(range.startHour)}–{formatHour(range.endHour)}
+                    </p>
+                    <p className="text-xs text-slate-600">{range.pricePerSlotRON} RON / slot</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => openPriceModal(range)}
+                      className="rounded-md px-3 py-1.5 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600 hover:bg-emerald-50"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRange(range.id)}
+                      className="rounded-md px-3 py-1.5 text-sm font-medium text-red-600 ring-1 ring-inset ring-red-300 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {settings && (
+        <PriceRangeModal
+          key={priceModalKey}
+          open={priceModalOpen}
+          onClose={() => setPriceModalOpen(false)}
+          settings={settings}
+          editing={editingRange}
+          onSaved={refreshSettings}
+        />
       )}
     </div>
   );
