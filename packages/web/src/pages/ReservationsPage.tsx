@@ -1,175 +1,251 @@
-import { useEffect, useMemo, useState } from "react";
-import { Calendar, dayjsLocalizer, Views } from "react-big-calendar";
+import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/en-gb";
-import "react-big-calendar/lib/css/react-big-calendar.css";
-// import { apiGet } from "../lib/api"; // old: fetched mock data from the backend
-import {
-  mockReservationsForDay,
-  updateReservation,
-  type Reservation,
-  type ReservationStatus,
-} from "../mocks/reservations.mock";
-import { getSettings, type CourtSettings } from "../mocks/settings.mock";
-import { addDays, fromDateId, pad, startOfDay, toDateId } from "../lib/date";
+import { updateReservation, type Reservation } from "../mocks/reservations.mock";
+import { getSettings, type CourtSettings, type Court } from "../mocks/settings.mock";
+import { addDays, startOfDay, startOfWeek, toDateId } from "../lib/date";
 import { BookingSearchModal } from "../components/BookingSearchModal";
 import { ReservationDetailsModal } from "../components/ReservationDetailsModal";
+import { WeekCalendarGrid } from "../components/WeekCalendarGrid";
+import { QuickAddPopover } from "../components/QuickAddPopover";
+import { listBookings, type ApiBooking } from "../api/bookings.api";
+import { listCourts } from "../api/courts.api";
+import { getErrorMessage } from "../api/auth.api";
+import { useCalendarStore } from "../store/calendar.store";
 
-// en-gb: 24-hour time formats.
 dayjs.locale("en-gb");
 
-// type ReservationStatus = "confirmed" | "pending" | "cancelled";
-//
-// interface Reservation {
-//   id: string;
-//   date: string;
-//   startHour: number;
-//   court: string;
-//   customerName: string;
-//   customerPhone: string;
-//   status: ReservationStatus;
-// }
-//
-// interface CourtSettings {
-//   openHour: number;
-//   closeHour: number;
-//   slotDurationMinutes: number;
-//   courts: string[];
-//   pricePerSlotRON: number;
-// }
+type ViewMode = "day" | "week";
 
-interface CalendarEvent {
-  id: string;
-  title: string;
-  start: Date;
-  end: Date;
-  resourceId: string;
-  status: ReservationStatus;
+function apiBookingToReservation(b: ApiBooking): Reservation {
+  const [startH, startM] = b.startTime.split(":").map(Number);
+  const [endH, endM] = b.endTime.split(":").map(Number);
+  return {
+    id: b.id,
+    date: b.date,
+    startHour: startH + startM / 60,
+    durationMinutes: endH * 60 + endM - (startH * 60 + startM),
+    court: b.courtName,
+    customerName: b.customerName ?? b.customerPhone,
+    customerPhone: b.customerPhone,
+    status: b.status,
+  };
 }
 
-interface CourtResource {
-  resourceId: string;
-  resourceTitle: string;
+function formatRangeLabel(days: Date[]): string {
+  if (days.length === 1) return dayjs(days[0]).format("dddd, D MMMM YYYY");
+  const start = dayjs(days[0]);
+  const end = dayjs(days[days.length - 1]);
+  if (start.isSame(end, "month")) return start.format("MMMM YYYY");
+  if (start.isSame(end, "year")) return `${start.format("MMM D")} – ${end.format("MMM D, YYYY")}`;
+  return `${start.format("MMM D, YYYY")} – ${end.format("MMM D, YYYY")}`;
 }
 
-const STATUS_COLORS: Record<ReservationStatus, string> = {
-  confirmed: "#059669", // emerald-600
-  pending: "#d97706", // amber-600
-  cancelled: "#dc2626", // red-600
-};
-
-const localizer = dayjsLocalizer(dayjs);
-
-const calendarFormats = {
-  dayFormat: (date: Date) => dayjs(date).format("ddd DD/MM"),
-  timeGutterFormat: (date: Date) => dayjs(date).format("HH:mm"),
-  eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
-    `${dayjs(start).format("HH:mm")} – ${dayjs(end).format("HH:mm")}`,
-};
-
-function EventContent({ event }: { event: CalendarEvent }) {
+function ChevronLeftIcon() {
   return (
-    <div className="truncate text-xs">
-      <span className="font-semibold">{event.title}</span>
-      <span className="opacity-90"> · {event.status}</span>
-    </div>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18l6-6-6-6" />
+    </svg>
   );
 }
 
 export function ReservationsPage() {
   const [settings, setSettings] = useState<CourtSettings | null>(null);
-  // setSettingsError: unused now that the old apiGet().catch() below is commented out.
-  const [settingsError] = useState<string | null>(null);
-
-  const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
-  const [reservations, setReservations] = useState<Reservation[] | null>(null);
-  // setReservationsError: unused now that the old apiGet().catch() below is commented out.
-  const [reservationsError] = useState<string | null>(null);
+  const [courts, setCourts] = useState<Court[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>("day");
+  const [rangeStart, setRangeStart] = useState(() => startOfDay(new Date()));
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [courtFilter, setCourtFilter] = useState<string>("all");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [bookingModalKey, setBookingModalKey] = useState(0);
-  const [quickBook, setQuickBook] = useState<{
-    date: string;
-    startHour: number;
-    courtName: string;
-    maxDurationMinutes: number;
-  } | null>(null);
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
 
-  // Forces a fresh BookingSearchModal instance every time it's opened (fresh
-  // filters/results state), whether via "New booking" or a slot click.
-  function openBookingModal(quick: typeof quickBook) {
-    setQuickBook(quick);
-    setBookingModalKey((k) => k + 1);
-    setBookingModalOpen(true);
+  const [popover, setPopover] = useState<{
+    date: Date;
+    minuteOfDay: number;
+    clientX: number;
+    clientY: number;
+    court?: string;
+  } | null>(null);
+
+  const days = viewMode === "week" ? Array.from({ length: 7 }, (_, i) => addDays(rangeStart, i)) : [rangeStart];
+
+  async function refreshRange() {
+    try {
+      const bookings = await listBookings();
+      const dateIds = new Set(days.map((d) => toDateId(d)));
+      setReservations(bookings.filter((b) => dateIds.has(b.date)).map(apiBookingToReservation));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(getErrorMessage(err));
+    }
   }
 
-  // Old: fetched mock data from the backend.
-  // useEffect(() => {
-  //   apiGet<CourtSettings>("/api/settings")
-  //     .then(setSettings)
-  //     .catch((err) => setSettingsError(err.message));
-  // }, []);
-  //
-  // useEffect(() => {
-  //   setReservations(null);
-  //   apiGet<{ reservations: Reservation[] }>(`/api/reservations?date=${toDateId(selectedDate)}`)
-  //     .then((data) => setReservations(data.reservations))
-  //     .catch((err) => setReservationsError(err.message));
-  // }, [selectedDate]);
+  function setMode(mode: ViewMode) {
+    if (mode === viewMode) return; // no-op click on the already-active mode
+    setViewMode(mode);
+    setRangeStart((d) => {
+      if (mode === "week") return startOfWeek(d);
+      // Switching to Day: land on today if it's within the week just shown,
+      // otherwise fall back to that week's first day (no specific day was selected).
+      const today = startOfDay(new Date());
+      const weekStart = startOfWeek(d);
+      const withinWeek = today.getTime() >= weekStart.getTime() && today.getTime() < addDays(weekStart, 7).getTime();
+      return withinWeek ? today : weekStart;
+    });
+  }
 
-  // New: mock data generated locally in the frontend, no backend call.
+  function goToday() {
+    setRangeStart(viewMode === "week" ? startOfWeek(new Date()) : startOfDay(new Date()));
+  }
+
+  function goStep(direction: 1 | -1) {
+    setRangeStart((d) => addDays(d, (viewMode === "week" ? 7 : 1) * direction));
+  }
+
   useEffect(() => {
     setSettings(getSettings());
+    listCourts()
+      .then((apiCourts) => setCourts(apiCourts.map((c) => ({ name: c.name, covered: c.covered }))))
+      .catch((err) => setLoadError(getErrorMessage(err)));
   }, []);
 
   useEffect(() => {
-    setReservations(mockReservationsForDay(selectedDate));
-  }, [selectedDate]);
+    refreshRange();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeStart, viewMode]);
 
-  const resources = useMemo<CourtResource[]>(
-    () => (settings ? settings.courts.map((court) => ({ resourceId: court.name, resourceTitle: court.name })) : []),
-    [settings]
-  );
+  const focusDate = useCalendarStore((s) => s.focusDate);
+  useEffect(() => {
+    if (!focusDate) return;
+    setRangeStart(viewMode === "week" ? startOfWeek(focusDate) : startOfDay(focusDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDate]);
 
-  const events = useMemo<CalendarEvent[]>(() => {
-    if (!reservations || !settings) return [];
-    return reservations.map((r) => {
-      const start = new Date(`${r.date}T${pad(r.startHour)}:00:00`);
-      const end = new Date(start.getTime() + (r.durationMinutes ?? settings.slotDurationMinutes) * 60_000);
-      return { id: r.id, title: r.customerName, start, end, resourceId: r.court, status: r.status };
-    });
-  }, [reservations, settings]);
-
-  const error = settingsError ?? reservationsError;
-  const loading = !error && (!settings || reservations === null);
-  const isToday = selectedDate.getTime() === startOfDay(new Date()).getTime();
-  const selectedReservation = reservations?.find((r) => r.id === selectedReservationId) ?? null;
+  const isCurrent =
+    viewMode === "week"
+      ? rangeStart.getTime() === startOfWeek(new Date()).getTime()
+      : rangeStart.getTime() === startOfDay(new Date()).getTime();
+  const selectedReservation = reservations.find((r) => r.id === selectedReservationId) ?? null;
+  const filteredReservations =
+    courtFilter === "all" ? reservations : reservations.filter((r) => r.court === courtFilter);
+  const dayViewCourts = courts.filter((c) => courtFilter === "all" || c.name === courtFilter);
 
   return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Reservations</h1>
-          <p className="mt-1 text-sm text-slate-500">All courts, one day at a glance (mock data).</p>
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-6 py-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold text-slate-900">{formatRangeLabel(days)}</h1>
+          <button
+            type="button"
+            onClick={goToday}
+            disabled={isCurrent}
+            className="rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Today
+          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => goStep(-1)}
+              aria-label="Previous"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+            >
+              <ChevronLeftIcon />
+            </button>
+            <button
+              type="button"
+              onClick={() => goStep(1)}
+              aria-label="Next"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+            >
+              <ChevronRightIcon />
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => openBookingModal(null)}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-        >
-          New booking
-        </button>
+
+        <div className="flex items-center gap-3">
+          {courts.length > 0 && (
+            <select
+              value={courtFilter}
+              onChange={(e) => setCourtFilter(e.target.value)}
+              className="rounded-full border-0 bg-slate-100 px-4 py-1.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            >
+              <option value="all">All courts</option>
+              {courts.map((court) => (
+                <option key={court.name} value={court.name}>
+                  {court.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <div className="flex items-center rounded-full bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setMode("day")}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                viewMode === "day" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Day
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("week")}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                viewMode === "week" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Week
+            </button>
+            <button
+              type="button"
+              disabled
+              title="Month view isn't built yet"
+              className="cursor-not-allowed rounded-full px-4 py-1.5 text-sm font-medium text-slate-300"
+            >
+              Month
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setBookingModalKey((k) => k + 1);
+              setBookingModalOpen(true);
+            }}
+            className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+          >
+            New booking
+          </button>
+        </div>
       </div>
+
+      {loadError && (
+        <div className="mx-6 mb-3 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
+          Couldn't load reservations: {loadError}
+        </div>
+      )}
 
       {settings && (
         <BookingSearchModal
           key={bookingModalKey}
           open={bookingModalOpen}
           onClose={() => setBookingModalOpen(false)}
-          settings={settings}
-          onBooked={() => setReservations(mockReservationsForDay(selectedDate))}
-          quickBook={quickBook}
+          settings={{ ...settings, courts }}
+          onBooked={refreshRange}
+          quickBook={null}
         />
       )}
 
@@ -179,108 +255,43 @@ export function ReservationsPage() {
           onClose={() => setSelectedReservationId(null)}
           onSave={(status) => {
             updateReservation(selectedReservation.id, { status });
-            setReservations(mockReservationsForDay(selectedDate));
+            refreshRange();
             setSelectedReservationId(null);
           }}
         />
       )}
 
-      {error && <p className="mt-6 text-sm text-red-600">Failed to load: {error}</p>}
+      {popover && settings && (
+        <QuickAddPopover
+          date={popover.date}
+          minuteOfDay={popover.minuteOfDay}
+          clientX={popover.clientX}
+          clientY={popover.clientY}
+          courts={courts}
+          initialCourt={popover.court}
+          slotDurationMinutes={settings.slotDurationMinutes}
+          onClose={() => setPopover(null)}
+          onBooked={refreshRange}
+        />
+      )}
 
-      {!error && loading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
-
-      {!error && settings && reservations !== null && (
-        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-900">
-              {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
-            </h2>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={toDateId(selectedDate)}
-                onChange={(e) => {
-                  if (e.target.value) setSelectedDate(fromDateId(e.target.value));
-                }}
-                aria-label="Jump to date"
-                className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-              <div className="inline-flex overflow-hidden rounded-md ring-1 ring-inset ring-slate-300">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate((d) => addDays(d, -1))}
-                  aria-label="Previous day"
-                  className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                >
-                  ◀
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate(startOfDay(new Date()))}
-                  disabled={isToday}
-                  className="border-x border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Today
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate((d) => addDays(d, 1))}
-                  aria-label="Next day"
-                  className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                >
-                  ▶
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4">
-            <Calendar
-              localizer={localizer}
-              date={selectedDate}
-              onNavigate={() => {}}
-              defaultView={Views.DAY}
-              views={[Views.DAY]}
-              toolbar={false}
-              resources={resources}
-              resourceIdAccessor="resourceId"
-              resourceTitleAccessor="resourceTitle"
-              resourceGroupingLayout
-              events={events}
-              min={new Date(1970, 0, 1, settings.openHour, 0)}
-              max={new Date(1970, 0, 1, settings.closeHour, 0)}
-              step={settings.slotDurationMinutes}
-              timeslots={1}
-              formats={calendarFormats}
-              eventPropGetter={(event) => ({
-                style: { backgroundColor: STATUS_COLORS[(event as CalendarEvent).status], color: "#fff" },
-              })}
-              onSelectEvent={(event) => setSelectedReservationId((event as CalendarEvent).id)}
-              selectable
-              onSelectSlot={(slotInfo) => {
-                const court = settings.courts.find((c) => c.name === slotInfo.resourceId);
-                if (!court || !reservations) return;
-                const startHour = slotInfo.start.getHours();
-
-                // Cap duration to how far this slot is actually free: up to
-                // the next active reservation on this court/date, or closing
-                // time if there isn't one.
-                const nextBlockingHour = reservations
-                  .filter((r) => r.court === court.name && r.status !== "cancelled" && r.startHour > startHour)
-                  .reduce((min, r) => Math.min(min, r.startHour), settings.closeHour);
-
-                openBookingModal({
-                  date: toDateId(selectedDate),
-                  startHour,
-                  courtName: court.name,
-                  maxDurationMinutes: (nextBlockingHour - startHour) * 60,
-                });
-              }}
-              components={{ event: EventContent }}
-              style={{ height: 700 }}
-            />
-          </div>
+      {settings ? (
+        <div className="min-h-0 flex-1">
+          <WeekCalendarGrid
+            days={days}
+            reservations={filteredReservations}
+            slotDurationMinutes={settings.slotDurationMinutes}
+            openHour={settings.openHour}
+            closeHour={settings.closeHour}
+            courts={viewMode === "day" ? dayViewCourts : undefined}
+            onSlotClick={(date, minuteOfDay, clientX, clientY, court) =>
+              setPopover({ date, minuteOfDay, clientX, clientY, court })
+            }
+            onEventClick={(reservation) => setSelectedReservationId(reservation.id)}
+          />
         </div>
+      ) : (
+        <p className="text-sm text-slate-500">Loading…</p>
       )}
     </div>
   );

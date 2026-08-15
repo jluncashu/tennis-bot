@@ -23,7 +23,7 @@ export async function createCourt(data: NewCourt): Promise<Court> {
 export async function updateCourt(
   id: string,
   clubId: string,
-  data: Partial<Pick<NewCourt, "name" | "slotDurationMinutes">>
+  data: Partial<Pick<NewCourt, "name" | "slotDurationMinutes" | "covered">>
 ): Promise<Court | null> {
   const [row] = await db
     .update(courts)

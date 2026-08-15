@@ -5,7 +5,7 @@ import { contacts } from "../contacts/contacts.schema";
 
 export const bookings = pgTable("bookings", {
     id: uuid("id").primaryKey().defaultRandom(),
-    courtId: uuid("court_id").notNull().references(() => courts.id),
+    courtId: uuid("court_id").notNull().references(() => courts.id, { onDelete: "cascade" }),
     customerId: uuid("customer_id").notNull().references(() => contacts.id),
     date: date("date").notNull(),
     startTime: time("start_time").notNull(),

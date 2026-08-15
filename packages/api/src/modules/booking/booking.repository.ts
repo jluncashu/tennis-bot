@@ -2,14 +2,27 @@ import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../../config/db";
 import { bookings, Booking, NewBooking } from "./booking.schema";
 import { courts } from "../courts/courts.schema";
+import { contacts } from "../contacts/contacts.schema";
 
-export async function findBookingsForClub(clubId: string): Promise<Booking[]> {
+export interface BookingWithDetails extends Booking {
+  courtName: string;
+  customerName: string | null;
+  customerPhone: string;
+}
+
+export async function findBookingsForClub(clubId: string): Promise<BookingWithDetails[]> {
   const rows = await db
-    .select({ booking: bookings })
+    .select({
+      booking: bookings,
+      courtName: courts.name,
+      customerName: contacts.name,
+      customerPhone: contacts.phone,
+    })
     .from(bookings)
     .innerJoin(courts, eq(bookings.courtId, courts.id))
+    .innerJoin(contacts, eq(bookings.customerId, contacts.id))
     .where(eq(courts.clubId, clubId));
-  return rows.map((r) => r.booking);
+  return rows.map((r) => ({ ...r.booking, courtName: r.courtName, customerName: r.customerName, customerPhone: r.customerPhone }));
 }
 
 export async function findBookingById(id: string, clubId: string): Promise<Booking | null> {

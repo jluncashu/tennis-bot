@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { LoginPage } from "./pages/LoginPage";
 import { ReservationsPage } from "./pages/ReservationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { CourtsPage } from "./pages/CourtsPage";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { useAuthStore } from "./store/auth.store";
 import { useEffect, useState } from "react";
@@ -39,6 +40,7 @@ export function App() {
   >
     <Route path="/reservations" element={<ReservationsPage />} />
     <Route path="/settings" element={<SettingsPage />} />
+    <Route path="/settings/courts" element={<CourtsPage />} />
   </Route>
 
   <Route

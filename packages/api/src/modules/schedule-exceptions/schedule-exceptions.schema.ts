@@ -7,7 +7,7 @@ import { courts } from "../courts/courts.schema";
 export const scheduleExceptions = pgTable("schedule_exceptions", {
     id: uuid("id").primaryKey().defaultRandom(),
     clubId: uuid("club_id").notNull().references(() => clubs.id),
-    courtId: uuid("court_id").references(() => courts.id), // null = whole club
+    courtId: uuid("court_id").references(() => courts.id, { onDelete: "cascade" }), // null = whole club
     date: date("date").notNull(),
     startTime: time("start_time"),
     endTime: time("end_time"),

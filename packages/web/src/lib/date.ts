@@ -20,3 +20,19 @@ export function startOfDay(d: Date): Date {
 export function addDays(d: Date, amount: number): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + amount);
 }
+
+// Romanian clubs run Monday-Sunday weeks, so getDay() (0=Sun..6=Sat) needs
+// remapping — Monday is the anchor, not the locale-independent getDay() zero.
+export function startOfWeek(d: Date): Date {
+  const start = startOfDay(d);
+  const offsetFromMonday = (start.getDay() + 6) % 7;
+  return addDays(start, -offsetFromMonday);
+}
+
+export function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+export function addMonths(d: Date, amount: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + amount, 1);
+}

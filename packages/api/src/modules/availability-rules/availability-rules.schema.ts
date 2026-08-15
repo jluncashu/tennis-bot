@@ -5,7 +5,7 @@ import { courts } from "../courts/courts.schema";
 
 export const availabilityRules = pgTable("availability_rules", {
     id: uuid("id").primaryKey().defaultRandom(),
-    courtId: uuid("court_id").notNull().references(() => courts.id),
+    courtId: uuid("court_id").notNull().references(() => courts.id, { onDelete: "cascade" }),
     dayOfWeek: smallint("day_of_week").notNull(), // 0 = Sunday .. 6 = Saturday
     startTime: time("start_time").notNull(),
     endTime: time("end_time").notNull(),
