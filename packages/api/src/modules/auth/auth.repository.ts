@@ -20,6 +20,15 @@ export async function findClubById(id: string): Promise<Club | null> {
   return row ?? null;
 }
 
+export async function findClubByWhatsappPhoneNumberId(phoneNumberId: string): Promise<Club | null> {
+  const [row] = await db
+    .select()
+    .from(clubs)
+    .where(eq(clubs.whatsappPhoneNumberId, phoneNumberId))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function createClub(
   data: Pick<NewClub, "name" | "email" | "passwordHash">
 ): Promise<Club> {

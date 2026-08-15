@@ -35,6 +35,25 @@ export async function sendList(to: string, bodyText: string, buttonLabel: string
   }
 }
 
+export async function sendButtons(to: string, bodyText: string, buttons: { id: string; title: string }[]) {
+  try {
+    await client().post("", {
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: bodyText },
+        action: {
+          buttons: buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })),
+        },
+      },
+    });
+  } catch (err: any) {
+    console.error("sendButtons failed:", err.response?.data ?? err.message);
+  }
+}
+
 export async function sendText(to: string, body: string) {
   try {
     await client().post("", {

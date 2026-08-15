@@ -1,78 +1,45 @@
-// Mock data only — no courts/availability/reservations table exists yet
-// (see docs/app/db-schema.md). Shaped like a repository so swapping these
-// for real Drizzle queries later doesn't require touching booking.flow.ts
-// or booking.service.ts.
+import { eq, and, inArray } from "drizzle-orm";
+import { db } from "../../config/db";
+import { bookings, Booking, NewBooking } from "./booking.schema";
+import { courts } from "../courts/courts.schema";
 
-export interface Option {
-  id: string;
-  title: string;
+export async function findBookingsForClub(clubId: string): Promise<Booking[]> {
+  const rows = await db
+    .select({ booking: bookings })
+    .from(bookings)
+    .innerJoin(courts, eq(bookings.courtId, courts.id))
+    .where(eq(courts.clubId, clubId));
+  return rows.map((r) => r.booking);
 }
 
-const FIELD_NAMES = ["Teren 1", "Teren 2", "Teren 3"];
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 22;
-
-export function mockDatesForWeek(weekOffset: number): Option[] {
-  const today = new Date();
-  const dates: Option[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + weekOffset * 7 + i);
-    const id = toDateId(d);
-    dates.push({ id, title: formatDateTitle(id) });
-  }
-  return dates;
+export async function findBookingById(id: string, clubId: string): Promise<Booking | null> {
+  const [row] = await db
+    .select({ booking: bookings })
+    .from(bookings)
+    .innerJoin(courts, eq(bookings.courtId, courts.id))
+    .where(and(eq(bookings.id, id), eq(courts.clubId, clubId)))
+    .limit(1);
+  return row?.booking ?? null;
 }
 
-export function mockSlotsForDate(dateId: string): Option[] {
-  const seed = hashString(dateId);
-  const slots: Option[] = [];
-  for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour++) {
-    // Deterministic "already booked" slots so the mock looks realistic
-    // without needing real reservation data.
-    if ((seed + hour) % 5 === 0) continue;
-    const id = `${dateId}_${hour}`;
-    slots.push({ id, title: formatSlotTitle(id) });
-  }
-  return slots;
+export async function findConfirmedBookingsForCourtOnDate(courtId: string, date: string): Promise<Booking[]> {
+  return db
+    .select()
+    .from(bookings)
+    .where(and(eq(bookings.courtId, courtId), eq(bookings.date, date), eq(bookings.status, "confirmed")));
 }
 
-export function mockFieldsForSlot(slotId: string): Option[] {
-  const seed = hashString(slotId);
-  return FIELD_NAMES.map((_, i) => `${slotId}_field${i + 1}`)
-    .filter((_, i) => (seed + i) % 4 !== 0) // one field "already taken" sometimes
-    .map((id) => ({ id, title: formatFieldTitle(id) }));
+export async function createBooking(data: NewBooking): Promise<Booking> {
+  const [row] = await db.insert(bookings).values(data).returning();
+  return row;
 }
 
-// Titles are always derived from the id rather than threaded through the
-// WhatsApp Flow client, since a RadioButtonsGroup only reports back the
-// selected id, not its title.
-
-export function formatDateTitle(dateId: string): string {
-  const d = new Date(`${dateId}T00:00:00`);
-  const label = d.toLocaleDateString("ro-RO", { weekday: "long", day: "2-digit", month: "2-digit" });
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-export function formatSlotTitle(slotId: string): string {
-  const hour = Number(slotId.split("_")[1]);
-  return `${pad(hour)}:00 - ${pad(hour + 1)}:00`;
-}
-
-export function formatFieldTitle(fieldId: string): string {
-  const index = Number(fieldId.split("field")[1]) - 1;
-  return FIELD_NAMES[index] ?? fieldId;
-}
-
-function toDateId(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
-
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h;
+export async function cancelBooking(id: string, clubId: string): Promise<Booking | null> {
+  const clubCourtIds = db.select({ id: courts.id }).from(courts).where(eq(courts.clubId, clubId));
+  const [row] = await db
+    .update(bookings)
+    .set({ status: "cancelled" })
+    .where(and(eq(bookings.id, id), inArray(bookings.courtId, clubCourtIds)))
+    .returning();
+  return row ?? null;
 }

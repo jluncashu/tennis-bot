@@ -1,13 +1,7 @@
-import { randomUUID } from "crypto";
 import { Request, Response } from "express";
 import { env } from "../config/env";
-import { sendText, sendFlow } from "../services/whatsapp.service";
-import { registerIncomingMessage } from "../modules/contacts/contacts.service";
-import { FLOW_SCREENS } from "../modules/booking/booking.flow";
-import { getWeekDates, buildSummary } from "../modules/booking/booking.service";
-import { handleIncomingMessage, handleListReply } from "../services/conversation.service";
-
-const BOOKING_FLOW_NAME = "Rezervare Teren Tenis Tineretului";
+import { findClubByWhatsappPhoneNumberId } from "../modules/auth/auth.repository";
+import { handleIncomingMessage } from "../modules/conversation/conversation.service";
 
 export function verifyWebhook(req: Request, res: Response) {
   const mode = req.query["hub.mode"];
@@ -15,83 +9,44 @@ export function verifyWebhook(req: Request, res: Response) {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === env.WHATSAPP_VERIFY_TOKEN) {
-    console.log("Webhook verified.");
     res.status(200).send(challenge);
     return;
   }
   res.sendStatus(403);
 }
 
-// export async function receiveMessage(req: Request, res: Response) {
-//   res.sendStatus(200); // ack immediately, Meta retries on timeout
-
-//   const entry = req.body?.entry?.[0];
-//   const change = entry?.changes?.[0];
-//   const msg = change?.value?.messages?.[0];
-//   if (!msg) return; // status update, not an actual message
-
-//   const from = msg.from;
-//   const { isNewConversation } = await registerIncomingMessage(from);
-
-//   if (msg.type === "interactive" && msg.interactive?.type === "nfm_reply") {
-//     await handleFlowCompletion(from, msg.interactive.nfm_reply);
-//     return;
-//   }
-
-//   if (isNewConversation) {
-//     await sendText(from, "Intro");
-//   }
-//   await sendBookingFlow(from);
-// }
-
 export async function receiveMessage(req: Request, res: Response) {
-  res.sendStatus(200);
-  const msg = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  if (!msg) return;
+  res.sendStatus(200); // ack immediately, Meta retries on timeout/non-2xx
 
-  if (msg.type === "interactive" && msg.interactive?.type === "list_reply") {
-    await handleListReply(msg.from, msg.interactive.list_reply.id);
+  const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+  const phoneNumberId = value?.metadata?.phone_number_id;
+  const msg = value?.messages?.[0];
+  if (!msg || !phoneNumberId) return; // status update or unrelated payload, not an actual message
+
+  const club = await findClubByWhatsappPhoneNumberId(phoneNumberId);
+  if (!club) {
+    console.warn(`No club registered for WhatsApp phone_number_id ${phoneNumberId}`);
     return;
   }
 
-  if (msg.text) {
-    await handleIncomingMessage(msg.from, msg.text.body);
-  }
+  const normalized = normalizeMessage(msg);
+  if (!normalized) return;
+
+  await handleIncomingMessage(club.id, normalized.from, normalized);
 }
 
-async function handleFlowCompletion(from: string, nfmReply: { response_json: string }) {
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(nfmReply.response_json);
-  } catch (err) {
-    console.error("Failed to parse WhatsApp Flow response_json:", err);
+function normalizeMessage(msg: any): { from: string; text?: string; buttonId?: string } | null {
+  const from = msg.from;
+  if (!from) return null;
+
+  if (msg.type === "interactive") {
+    const buttonId = msg.interactive?.list_reply?.id ?? msg.interactive?.button_reply?.id;
+    return buttonId ? { from, buttonId } : null;
   }
 
-  const dateId = data.date_id as string;
-  const slotId = data.slot_id as string;
-  const fieldId = data.field_id as string;
+  if (msg.type === "text" && msg.text?.body) {
+    return { from, text: msg.text.body };
+  }
 
-  // Mock only — no reservations table yet, so nothing is persisted.
-  console.log("Booking flow submitted (mock):", data);
-
-  await sendText(
-    from,
-    `Rezervare înregistrată (mock): ${buildSummary(dateId, slotId, fieldId)}. Te contactăm pentru confirmare! 🎾`
-  );
+  return null;
 }
-
-// function sendBookingFlow(to: string) {
-//   const { dates, weekOffset } = getWeekDates(0);
-//   return sendFlow(to, {
-//     flowId: env.WHATSAPP_FLOW_ID,
-//     flowToken: randomUUID(),
-//     headerText: BOOKING_FLOW_NAME,
-//     bodyText: "Rezervă un teren în câțiva pași simpli.",
-//     ctaText: "Rezervă acum",
-//     initialScreen: FLOW_SCREENS.DATE_SELECT,
-//     initialData: { dates, week_offset: weekOffset },
-//     mode: env.WHATSAPP_FLOW_MODE,
-//   });
-// }
-
-
