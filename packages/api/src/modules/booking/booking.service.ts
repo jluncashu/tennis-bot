@@ -44,6 +44,39 @@ export async function createBookingForCustomer(
   }
 }
 
+// Admin-created bookings (quick-add on the dashboard) pick any start/end time
+// directly, unlike the customer-facing flow above which must match a slot
+// generated from availability rules — staff can book outside those rules.
+export async function createManualBooking(
+  clubId: string,
+  courtId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  phone: string,
+  name?: string
+) {
+  await getCourt(courtId, clubId); // throws 404 if not this club's court
+
+  const contact = await findOrCreateContact(phone, name);
+
+  try {
+    return await createBooking({
+      courtId,
+      customerId: contact.id,
+      date,
+      startTime,
+      endTime,
+      status: "confirmed",
+    });
+  } catch (err: any) {
+    if (err?.code === UNIQUE_VIOLATION) {
+      throw httpError(409, "Slot no longer available");
+    }
+    throw err;
+  }
+}
+
 export async function cancelBookingForClub(id: string, clubId: string) {
   const cancelled = await cancelBooking(id, clubId);
   if (!cancelled) throw httpError(404, "Booking not found");

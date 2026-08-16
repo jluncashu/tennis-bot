@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/en-gb";
 import { updateReservation, type Reservation } from "../mocks/reservations.mock";
-import { getSettings, type CourtSettings, type Court } from "../mocks/settings.mock";
+import { getSettings, type CourtSettings } from "../mocks/settings.mock";
 import { addDays, startOfDay, startOfWeek, toDateId } from "../lib/date";
 import { BookingSearchModal } from "../components/BookingSearchModal";
 import { ReservationDetailsModal } from "../components/ReservationDetailsModal";
 import { WeekCalendarGrid } from "../components/WeekCalendarGrid";
 import { QuickAddPopover } from "../components/QuickAddPopover";
 import { listBookings, type ApiBooking } from "../api/bookings.api";
-import { listCourts } from "../api/courts.api";
+import { listCourts, type ApiCourt } from "../api/courts.api";
 import { getErrorMessage } from "../api/auth.api";
 import { useCalendarStore } from "../store/calendar.store";
+import { buildCourtColorMap } from "../lib/courtColors";
 
 dayjs.locale("en-gb");
 
@@ -59,7 +60,7 @@ function ChevronRightIcon() {
 
 export function ReservationsPage() {
   const [settings, setSettings] = useState<CourtSettings | null>(null);
-  const [courts, setCourts] = useState<Court[]>([]);
+  const [courts, setCourts] = useState<ApiCourt[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [rangeStart, setRangeStart] = useState(() => startOfDay(new Date()));
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -116,7 +117,7 @@ export function ReservationsPage() {
   useEffect(() => {
     setSettings(getSettings());
     listCourts()
-      .then((apiCourts) => setCourts(apiCourts.map((c) => ({ name: c.name, covered: c.covered }))))
+      .then(setCourts)
       .catch((err) => setLoadError(getErrorMessage(err)));
   }, []);
 
@@ -140,6 +141,9 @@ export function ReservationsPage() {
   const filteredReservations =
     courtFilter === "all" ? reservations : reservations.filter((r) => r.court === courtFilter);
   const dayViewCourts = courts.filter((c) => courtFilter === "all" || c.name === courtFilter);
+  // Built from the full, unfiltered court list so colors stay stable across
+  // day/week view and the court filter, instead of shifting per-view subsets.
+  const courtColors = useMemo(() => buildCourtColorMap(courts.map((c) => c.name)), [courts]);
 
   return (
     <div className="flex h-full flex-col">
@@ -268,6 +272,7 @@ export function ReservationsPage() {
           clientX={popover.clientX}
           clientY={popover.clientY}
           courts={courts}
+          courtColors={courtColors}
           initialCourt={popover.court}
           slotDurationMinutes={settings.slotDurationMinutes}
           onClose={() => setPopover(null)}
@@ -284,6 +289,7 @@ export function ReservationsPage() {
             openHour={settings.openHour}
             closeHour={settings.closeHour}
             courts={viewMode === "day" ? dayViewCourts : undefined}
+            courtColors={courtColors}
             onSlotClick={(date, minuteOfDay, clientX, clientY, court) =>
               setPopover({ date, minuteOfDay, clientX, clientY, court })
             }

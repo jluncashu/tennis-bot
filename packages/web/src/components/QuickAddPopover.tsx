@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import dayjs from "dayjs";
-import { addManualBooking } from "../mocks/reservations.mock";
-import type { Court } from "../mocks/settings.mock";
-import { courtColor } from "./WeekCalendarGrid";
+import { createBooking } from "../api/bookings.api";
+import { getErrorMessage } from "../api/auth.api";
+import type { ApiCourt } from "../api/courts.api";
+import { courtColorFrom, type CourtColor } from "../lib/courtColors";
 
 interface QuickAddPopoverProps {
   date: Date;
   minuteOfDay: number; // suggested start time, minutes since midnight
   clientX: number;
   clientY: number;
-  courts: Court[];
+  courts: ApiCourt[];
+  courtColors: Map<string, CourtColor>;
   initialCourt?: string;
   slotDurationMinutes: number;
   onClose: () => void;
@@ -32,6 +34,7 @@ export function QuickAddPopover({
   clientX,
   clientY,
   courts,
+  courtColors,
   initialCourt,
   slotDurationMinutes,
   onClose,
@@ -42,11 +45,12 @@ export function QuickAddPopover({
 
   const [title, setTitle] = useState("");
   const [phone, setPhone] = useState("");
-  const [courtName, setCourtName] = useState(
-    courts.find((c) => c.name === initialCourt)?.name ?? courts[0]?.name ?? ""
+  const [courtId, setCourtId] = useState(
+    courts.find((c) => c.name === initialCourt)?.id ?? courts[0]?.id ?? ""
   );
   const [startTime, setStartTime] = useState(toTimeInputValue(start.hour, start.minute));
   const [endTime, setEndTime] = useState(toTimeInputValue(end.hour, end.minute));
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const ref = useRef<HTMLDivElement>(null);
@@ -62,28 +66,38 @@ export function QuickAddPopover({
   const left = Math.min(clientX + 12, window.innerWidth - POPOVER_WIDTH - 12);
   const top = Math.min(clientY - 20, window.innerHeight - 420);
 
-  function handleSave() {
+  async function handleSave() {
     const [sh, sm] = startTime.split(":").map(Number);
     const [eh, em] = endTime.split(":").map(Number);
     const durationMinutes = eh * 60 + em - (sh * 60 + sm);
 
     if (!title.trim()) return setError("Add a customer name.");
     if (!phone.trim()) return setError("Add a phone number.");
+    if (!courtId) return setError("Add a court first.");
     if (durationMinutes <= 0) return setError("End time must be after start time.");
 
-    addManualBooking({
-      date: dayjs(date).format("YYYY-MM-DD"),
-      startHour: sh + sm / 60,
-      durationMinutes,
-      court: courtName,
-      customerName: title.trim(),
-      customerPhone: phone.trim(),
-    });
-    onBooked();
-    onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      await createBooking({
+        courtId,
+        date: dayjs(date).format("YYYY-MM-DD"),
+        startTime,
+        endTime,
+        customerName: title.trim(),
+        customerPhone: phone.trim(),
+      });
+      onBooked();
+      onClose();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const dot = courtColor(courtName);
+  const selectedCourt = courts.find((c) => c.id === courtId);
+  const dot = courtColorFrom(courtColors, selectedCourt?.name ?? "");
 
   return (
     <div
@@ -137,12 +151,12 @@ export function QuickAddPopover({
           <CourtIcon />
           <span className={`h-2 w-2 shrink-0 rounded-full ${dot.dot}`} />
           <select
-            value={courtName}
-            onChange={(e) => setCourtName(e.target.value)}
+            value={courtId}
+            onChange={(e) => setCourtId(e.target.value)}
             className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           >
             {courts.map((c) => (
-              <option key={c.name} value={c.name}>
+              <option key={c.id} value={c.id}>
                 {c.name} ({c.covered ? "covered" : "uncovered"})
               </option>
             ))}
@@ -167,16 +181,18 @@ export function QuickAddPopover({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          disabled={saving}
+          className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={handleSave}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700"
+          disabled={saving}
+          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Save
+          {saving ? "Saving…" : "Save"}
         </button>
       </div>
     </div>

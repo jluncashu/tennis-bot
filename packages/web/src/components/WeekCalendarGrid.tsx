@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import type { Reservation, ReservationStatus } from "../mocks/reservations.mock";
-import type { Court } from "../mocks/settings.mock";
+import type { ApiCourt } from "../api/courts.api";
+import { courtColorFrom, type CourtColor } from "../lib/courtColors";
 
 interface WeekCalendarGridProps {
   days: Date[];
@@ -10,7 +11,8 @@ interface WeekCalendarGridProps {
   closeHour: number;
   // When set (and days.length === 1), the grid renders one column per court
   // for that single day instead of one column per day.
-  courts?: Court[];
+  courts?: ApiCourt[];
+  courtColors: Map<string, CourtColor>;
   onSlotClick: (date: Date, minuteOfDay: number, clientX: number, clientY: number, court?: string) => void;
   onEventClick: (reservation: Reservation) => void;
 }
@@ -24,26 +26,13 @@ interface GridColumn {
 }
 
 const PX_PER_MINUTE = 1.1;
-const SNAP_MINUTES = 15;
+// Snapping to the full hour so a click anywhere in the "8-9" row always
+// preselects 08:00-09:00, matching the only boundaries the grid actually draws.
+const SNAP_MINUTES = 60;
 
 // Subtle diagonal hatch marking a day that's already over — can't be booked anymore.
 const PAST_DAY_PATTERN =
   "repeating-linear-gradient(45deg, rgba(148,163,184,0.08) 0px, rgba(148,163,184,0.08) 6px, transparent 6px, transparent 14px)";
-
-const PALETTE = [
-  { bg: "bg-violet-100", text: "text-violet-800", dot: "bg-violet-400" },
-  { bg: "bg-emerald-100", text: "text-emerald-800", dot: "bg-emerald-400" },
-  { bg: "bg-sky-100", text: "text-sky-800", dot: "bg-sky-400" },
-  { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-400" },
-  { bg: "bg-rose-100", text: "text-rose-800", dot: "bg-rose-400" },
-  { bg: "bg-teal-100", text: "text-teal-800", dot: "bg-teal-400" },
-];
-
-export function courtColor(court: string) {
-  let h = 0;
-  for (let i = 0; i < court.length; i++) h = (h * 31 + court.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length];
-}
 
 interface PositionedEvent {
   reservation: Reservation;
@@ -61,8 +50,8 @@ function eventRange(r: Reservation, slotDurationMinutes: number) {
 
 // Classic calendar-event layout: cluster mutually-overlapping events, then
 // pack each cluster into as few side-by-side columns as fit without overlap.
-function layoutDay(dayReservations: Reservation[], openHour: number, slotDurationMinutes: number): PositionedEvent[] {
-  const sorted = [...dayReservations].sort((a, b) => a.startHour - b.startHour);
+function packOverlaps(reservations: Reservation[], openHour: number, slotDurationMinutes: number): PositionedEvent[] {
+  const sorted = [...reservations].sort((a, b) => a.startHour - b.startHour);
 
   const clusters: Reservation[][] = [];
   let current: Reservation[] = [];
@@ -117,8 +106,43 @@ function layoutDay(dayReservations: Reservation[], openHour: number, slotDuratio
   return positioned;
 }
 
+// Week view mixes every court into one day column. Packing purely by time
+// overlap (packOverlaps above) let the same court land in a different
+// sub-column on different days, undermining the color coding. Giving each
+// court a fixed horizontal band keeps it in the same relative order every
+// day; only courts with a booking that day get a band, so an empty court
+// doesn't leave dead space and shrink the rest into a corner.
+function layoutDay(
+  dayReservations: Reservation[],
+  openHour: number,
+  slotDurationMinutes: number,
+  courtOrder?: string[]
+): PositionedEvent[] {
+  if (!courtOrder || courtOrder.length === 0) {
+    return packOverlaps(dayReservations, openHour, slotDurationMinutes);
+  }
+
+  const presentCourts = courtOrder.filter((name) => dayReservations.some((r) => r.court === name));
+  if (presentCourts.length === 0) return [];
+
+  const positioned: PositionedEvent[] = [];
+  const bandWidth = 100 / presentCourts.length;
+  presentCourts.forEach((courtName, laneIndex) => {
+    const laneReservations = dayReservations.filter((r) => r.court === courtName);
+    const bandLeft = laneIndex * bandWidth;
+    for (const event of packOverlaps(laneReservations, openHour, slotDurationMinutes)) {
+      positioned.push({
+        ...event,
+        left: bandLeft + (event.left / 100) * bandWidth,
+        width: (event.width / 100) * bandWidth,
+      });
+    }
+  });
+  return positioned;
+}
+
 function formatHourLabel(hour: number): string {
-  return dayjs().hour(hour).minute(0).format("h A");
+  return dayjs().hour(hour).minute(0).format("HH:mm");
 }
 
 // startHour can carry fractional minutes (e.g. 9.5 for a 09:30 quick-add),
@@ -141,11 +165,13 @@ export function WeekCalendarGrid({
   openHour,
   closeHour,
   courts,
+  courtColors,
   onSlotClick,
   onEventClick,
 }: WeekCalendarGridProps) {
   const byCourt = !!courts && days.length === 1;
   const today = dayjs().startOf("day");
+  const courtOrder = Array.from(courtColors.keys());
 
   const columns: GridColumn[] = byCourt
     ? courts!.map((c) => ({
@@ -172,11 +198,18 @@ export function WeekCalendarGrid({
   const showNowLine = nowMinuteOfDay >= openHour * 60 && nowMinuteOfDay <= closeHour * 60;
   const nowTop = (nowMinuteOfDay - openHour * 60) * PX_PER_MINUTE;
 
+  // Day view: every column shares the same date, so one line spans all of them
+  // (no dot — a dot per court column would look like a row of repeated markers).
+  // Week view: the line starts at today's column and runs to the end of the week.
+  const todayColumnIndex = columns.findIndex((c) => dayjs(c.date).isSame(today, "day"));
+  const showNowOverlay = showNowLine && todayColumnIndex !== -1;
+  const nowLineStartIndex = byCourt ? 0 : todayColumnIndex;
+
   function handleColumnClick(column: GridColumn, e: React.MouseEvent<HTMLDivElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     const offsetY = e.clientY - rect.top;
     const rawMinute = openHour * 60 + offsetY / PX_PER_MINUTE;
-    const snapped = Math.round(rawMinute / SNAP_MINUTES) * SNAP_MINUTES;
+    const snapped = Math.floor(rawMinute / SNAP_MINUTES) * SNAP_MINUTES;
     onSlotClick(column.date, snapped, e.clientX, e.clientY, column.court);
   }
 
@@ -187,7 +220,7 @@ export function WeekCalendarGrid({
         <div />
         {columns.map((column) => {
           if (byCourt) {
-            const dot = courtColor(column.court!);
+            const dot = courtColorFrom(courtColors, column.court!);
             return (
               <div key={column.key} className="flex flex-col items-center gap-1 py-3">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
@@ -220,7 +253,7 @@ export function WeekCalendarGrid({
 
       {/* Scrollable grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid" style={{ gridTemplateColumns: gridColumns }}>
+        <div className="relative grid" style={{ gridTemplateColumns: "64px 1fr" }}>
           {/* Time gutter */}
           <div className="relative" style={{ height: gridHeight }}>
             {hours.map((h) => (
@@ -236,81 +269,106 @@ export function WeekCalendarGrid({
                 {formatHourLabel(h)}
               </div>
             ))}
-            {showNowLine && (
-              // Overshoots the gutter's true right edge by a few px so the dashed
-              // connector always reaches under the red dot, regardless of where a
-              // dashed border's repeating pattern happens to land at the boundary.
+            {showNowOverlay && (
+              // Gated on showNowOverlay (not just showNowLine) so this only appears when
+              // today is actually one of the displayed columns — otherwise it reads as
+              // "the time in this view" when it's really just the wall-clock time.
+              // Same right-aligned, vertically-centered placement as the hour labels above,
+              // just styled as a pill so it reads as "now" rather than another fixed hour mark.
               <div
-                className="absolute left-0 flex -translate-y-1/2 items-center gap-1 pl-1"
-                style={{ top: nowTop, right: -8 }}
+                className="absolute right-2 z-20 -translate-y-1/2 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                style={{ top: nowTop }}
               >
-                <span className="shrink-0 text-[11px] font-medium text-slate-400">{now.format("h:mm A")}</span>
-                <span className="flex-1 border-t border-dashed border-slate-300" />
+                {now.format("HH:mm")}
               </div>
             )}
           </div>
 
           {/* Columns */}
-          {columns.map((column) => {
-            const dateId = dayjs(column.date).format("YYYY-MM-DD");
-            const columnReservations = reservations.filter(
-              (r) => r.date === dateId && (!column.court || r.court === column.court)
-            );
-            const positioned = layoutDay(columnReservations, openHour, slotDurationMinutes);
-            const isToday = dayjs(column.date).isSame(today, "day");
-            const isPast = dayjs(column.date).isBefore(today, "day");
+          <div className="relative" style={{ height: gridHeight }}>
+            <div className="grid h-full" style={{ gridTemplateColumns: `repeat(${columns.length}, 1fr)` }}>
+              {columns.map((column) => {
+                const dateId = dayjs(column.date).format("YYYY-MM-DD");
+                const columnReservations = reservations.filter(
+                  (r) => r.date === dateId && (!column.court || r.court === column.court)
+                );
+                const positioned = layoutDay(
+                  columnReservations,
+                  openHour,
+                  slotDurationMinutes,
+                  byCourt ? undefined : courtOrder
+                );
+                const isPast = dayjs(column.date).isBefore(today, "day");
 
-            return (
-              <div
-                key={column.key}
-                className="relative cursor-pointer border-l border-slate-100"
-                style={{ height: gridHeight, backgroundImage: isPast ? PAST_DAY_PATTERN : undefined }}
-                onClick={(e) => handleColumnClick(column, e)}
-              >
-                {hours.map((h) => (
+                return (
                   <div
-                    key={h}
-                    className="absolute left-0 right-0 border-t border-slate-100"
-                    style={{ top: (h - openHour) * 60 * PX_PER_MINUTE }}
-                  />
-                ))}
+                    key={column.key}
+                    className="relative cursor-pointer border-l border-slate-100"
+                    style={{ backgroundImage: isPast ? PAST_DAY_PATTERN : undefined }}
+                    onClick={(e) => handleColumnClick(column, e)}
+                  >
+                    {hours.map((h) => (
+                      <div
+                        key={h}
+                        className="absolute left-0 right-0 border-t border-slate-100"
+                        style={{ top: (h - openHour) * 60 * PX_PER_MINUTE }}
+                      />
+                    ))}
 
-                {isToday && showNowLine && (
-                  <div className="absolute left-0 right-0 z-10 flex items-center" style={{ top: nowTop }}>
-                    <span className="-ml-1 h-2 w-2 shrink-0 rounded-full bg-red-500" />
-                    <span className="h-px flex-1 bg-red-400" />
+                    {positioned.map(({ reservation, top, height, left, width }) => {
+                      const color = courtColorFrom(courtColors, reservation.court);
+                      return (
+                        <button
+                          key={reservation.id}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEventClick(reservation);
+                          }}
+                          className={`absolute overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow hover:shadow-md ${color.bg} ${color.text} ${STATUS_STYLE[reservation.status]}`}
+                          style={{
+                            top,
+                            height,
+                            left: `calc(${left}% + 2px)`,
+                            width: `calc(${width}% - 4px)`,
+                            borderColor: "rgba(15,23,42,0.08)",
+                          }}
+                        >
+                          <div className="truncate font-semibold">{reservation.customerName}</div>
+                          <div className="truncate opacity-80">
+                            {byCourt ? formatEventTime(reservation.startHour) : `${reservation.court} · ${formatEventTime(reservation.startHour)}`}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
+                );
+              })}
+            </div>
 
-                {positioned.map(({ reservation, top, height, left, width }) => {
-                  const color = courtColor(reservation.court);
-                  return (
-                    <button
-                      key={reservation.id}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEventClick(reservation);
-                      }}
-                      className={`absolute overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow hover:shadow-md ${color.bg} ${color.text} ${STATUS_STYLE[reservation.status]}`}
-                      style={{
-                        top,
-                        height,
-                        left: `calc(${left}% + 2px)`,
-                        width: `calc(${width}% - 4px)`,
-                        borderColor: "rgba(15,23,42,0.08)",
-                      }}
-                    >
-                      <div className="truncate font-semibold">{reservation.customerName}</div>
-                      <div className="truncate opacity-80">
-                        {byCourt ? formatEventTime(reservation.startHour) : `${reservation.court} · ${formatEventTime(reservation.startHour)}`}
-                      </div>
-                    </button>
-                  );
-                })}
+            {showNowOverlay && (
+              <div
+                className="pointer-events-none absolute z-10 flex items-center"
+                style={{ top: nowTop, left: `${(nowLineStartIndex / columns.length) * 100}%`, right: 0 }}
+              >
+                {!byCourt && <span className="-ml-1 h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
+                <span className="h-px flex-1 bg-blue-400" />
               </div>
-            );
-          })}
+            )}
+          </div>
+
+          {showNowOverlay && (
+            // Bridges the gutter's "now" badge to the dot, which can sit several
+            // columns to the right in week view — without this the dashed line stopped
+            // at the gutter's edge, leaving a visible gap before the dot.
+            <div
+              className="pointer-events-none absolute left-0 z-10 border-t border-dashed border-slate-300"
+              style={{
+                top: nowTop,
+                width: `calc(64px + (100% - 64px) * ${nowLineStartIndex / columns.length})`,
+              }}
+            />
+          )}
         </div>
       </div>
     </div>
