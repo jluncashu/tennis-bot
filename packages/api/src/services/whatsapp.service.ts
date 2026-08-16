@@ -15,7 +15,7 @@ function client() {
 
 export interface ListSection {
   title: string;
-  rows: { id: string; title: string }[];
+  rows: { id: string; title: string; description?: string }[];
 }
 
 export async function sendList(to: string, bodyText: string, buttonLabel: string, sections: ListSection[]) {

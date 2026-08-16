@@ -41,7 +41,7 @@ function addDays(date: string, days: number): string {
 
 // "Today" is only meaningful relative to a timezone — a server running in
 // UTC could disagree with the club's local date right around midnight.
-function todayInTimezone(timezone: string): string {
+export function todayInTimezone(timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -89,10 +89,54 @@ export async function getAvailableSlots(clubId: string, courtId: string, date: s
       return !blockedWindows.some((w) => overlaps(start, end, w.start, w.end));
     });
 
+  // Overlap, not exact-start match: a multi-hour booking's second hour has
+  // no candidate slot starting at its own startTime, so exact matching would
+  // let someone double-book into the middle of an existing reservation.
   const existingBookings = await findConfirmedBookingsForCourtOnDate(courtId, date);
-  const bookedStarts = new Set(existingBookings.map((b) => toMinutes(b.startTime)));
+  const bookedWindows = existingBookings.map((b) => ({ start: toMinutes(b.startTime), end: toMinutes(b.endTime) }));
 
-  return candidates.filter((slot) => !bookedStarts.has(toMinutes(slot.startTime)));
+  return candidates.filter((slot) => {
+    const start = toMinutes(slot.startTime);
+    const end = toMinutes(slot.endTime);
+    return !bookedWindows.some((w) => overlaps(start, end, w.start, w.end));
+  });
+}
+
+// Walks the slot grid forward from startTime as long as each next cell is
+// free, up to maxUnits cells. Used both to offer duration choices in the UI
+// and to re-validate a chosen range at booking time.
+export async function getConsecutiveDurations(
+  clubId: string,
+  courtId: string,
+  date: string,
+  startTime: string,
+  maxUnits: number
+): Promise<{ units: number; endTime: string }[]> {
+  const slots = await getAvailableSlots(clubId, courtId, date);
+  const slotByStart = new Map(slots.map((s) => [s.startTime, s]));
+
+  const durations: { units: number; endTime: string }[] = [];
+  let cursor = startTime;
+  for (let i = 0; i < maxUnits; i++) {
+    const slot = slotByStart.get(cursor);
+    if (!slot) break;
+    durations.push({ units: i + 1, endTime: slot.endTime });
+    cursor = slot.endTime;
+  }
+  return durations;
+}
+
+const MAX_BOOKING_UNITS = 24; // generous cap on consecutive grid cells checked when validating a range
+
+export async function isRangeAvailable(
+  clubId: string,
+  courtId: string,
+  date: string,
+  startTime: string,
+  endTime: string
+): Promise<boolean> {
+  const durations = await getConsecutiveDurations(clubId, courtId, date, startTime, MAX_BOOKING_UNITS);
+  return durations.some((d) => d.endTime === endTime);
 }
 
 export async function getAvailableDates(

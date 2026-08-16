@@ -1,6 +1,29 @@
 import { Request, Response } from "express";
 import { listBookingsForClub, cancelBookingForClub, createManualBooking } from "./booking.service";
 import { createBookingSchema } from "./booking.schema";
+import { subscribeToBookingEvents } from "../../services/booking-events.service";
+
+const SSE_HEARTBEAT_MS = 25000; // keeps idle connections (and proxies) from timing out
+
+export function streamBookingEvents(req: Request, res: Response) {
+  const clubId = req.user!.id;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write(":ok\n\n"); // flush headers immediately so the client's onopen fires
+
+  const notify = () => res.write("event: changed\ndata: {}\n\n");
+  const unsubscribe = subscribeToBookingEvents(clubId, notify);
+  const heartbeat = setInterval(() => res.write(": ping\n\n"), SSE_HEARTBEAT_MS);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+}
 
 export async function listBookingsController(req: Request, res: Response) {
   const bookings = await listBookingsForClub(req.user!.id);

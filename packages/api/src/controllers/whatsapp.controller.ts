@@ -32,6 +32,8 @@ export async function receiveMessage(req: Request, res: Response) {
   const normalized = normalizeMessage(msg);
   if (!normalized) return;
 
+  console.log(`[whatsapp] ${club.name} <- ${normalized.from}:`, normalized.buttonId ? `button="${normalized.buttonId}"` : `text="${normalized.text}"`);
+
   await handleIncomingMessage(club.id, normalized.from, normalized);
 }
 

@@ -1,4 +1,7 @@
 import { api } from "./api";
+import { useAuthStore } from "../store/auth.store";
+
+const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
 
 export interface ApiBooking {
   id: string;
@@ -31,4 +34,19 @@ export interface CreateBookingInput {
 export async function createBooking(data: CreateBookingInput): Promise<{ id: string }> {
   const res = await api.post<{ id: string }>("/bookings", data);
   return res.data;
+}
+
+export async function cancelBooking(id: string): Promise<void> {
+  await api.delete(`/bookings/${id}`);
+}
+
+// EventSource can't set an Authorization header, so the access token rides
+// along as a query param instead — see requireAuthSSE on the API side.
+export function subscribeToBookingEvents(onChange: () => void): () => void {
+  const token = useAuthStore.getState().accessToken;
+  if (!token) return () => {};
+
+  const source = new EventSource(`${API_BASE}/bookings/events?token=${encodeURIComponent(token)}`);
+  source.addEventListener("changed", onChange);
+  return () => source.close();
 }

@@ -11,7 +11,7 @@ export const bookings = pgTable("bookings", {
     date: date("date").notNull(),
     startTime: time("start_time").notNull(),
     endTime: time("end_time").notNull(),
-    status: text("status").notNull().default("confirmed"), // 'confirmed' | 'cancelled'
+    status: text("status").notNull().default("confirmed"), // 'confirmed' — cancelled bookings are deleted, not soft-cancelled
     createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
     noDoubleBooking: uniqueIndex("no_double_booking")

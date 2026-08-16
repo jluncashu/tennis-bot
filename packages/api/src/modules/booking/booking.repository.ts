@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, asc, gte, inArray } from "drizzle-orm";
 import { db } from "../../config/db";
 import { bookings, Booking, NewBooking } from "./booking.schema";
 import { courts } from "../courts/courts.schema";
@@ -35,6 +35,33 @@ export async function findBookingById(id: string, clubId: string): Promise<Booki
   return row?.booking ?? null;
 }
 
+export async function findUpcomingConfirmedBookingsForContact(
+  clubId: string,
+  customerId: string,
+  fromDate: string
+): Promise<BookingWithDetails[]> {
+  const rows = await db
+    .select({
+      booking: bookings,
+      courtName: courts.name,
+      customerName: contacts.name,
+      customerPhone: contacts.phone,
+    })
+    .from(bookings)
+    .innerJoin(courts, eq(bookings.courtId, courts.id))
+    .innerJoin(contacts, eq(bookings.customerId, contacts.id))
+    .where(
+      and(
+        eq(courts.clubId, clubId),
+        eq(bookings.customerId, customerId),
+        eq(bookings.status, "confirmed"),
+        gte(bookings.date, fromDate)
+      )
+    )
+    .orderBy(asc(bookings.date), asc(bookings.startTime));
+  return rows.map((r) => ({ ...r.booking, courtName: r.courtName, customerName: r.customerName, customerPhone: r.customerPhone }));
+}
+
 export async function findConfirmedBookingsForCourtOnDate(courtId: string, date: string): Promise<Booking[]> {
   return db
     .select()
@@ -50,8 +77,7 @@ export async function createBooking(data: NewBooking): Promise<Booking> {
 export async function cancelBooking(id: string, clubId: string): Promise<Booking | null> {
   const clubCourtIds = db.select({ id: courts.id }).from(courts).where(eq(courts.clubId, clubId));
   const [row] = await db
-    .update(bookings)
-    .set({ status: "cancelled" })
+    .delete(bookings)
     .where(and(eq(bookings.id, id), inArray(bookings.courtId, clubCourtIds)))
     .returning();
   return row ?? null;

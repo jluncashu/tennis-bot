@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import type { Reservation, ReservationStatus } from "../mocks/reservations.mock";
+import type { Reservation } from "../mocks/reservations.mock";
 import type { ApiCourt } from "../api/courts.api";
 import { courtColorFrom, type CourtColor } from "../lib/courtColors";
 
@@ -9,9 +9,7 @@ interface WeekCalendarGridProps {
   slotDurationMinutes: number;
   openHour: number;
   closeHour: number;
-  // When set (and days.length === 1), the grid renders one column per court
-  // for that single day instead of one column per day.
-  courts?: ApiCourt[];
+  courts: ApiCourt[];
   courtColors: Map<string, CourtColor>;
   onSlotClick: (date: Date, minuteOfDay: number, clientX: number, clientY: number, court?: string) => void;
   onEventClick: (reservation: Reservation) => void;
@@ -35,6 +33,16 @@ const PAST_DAY_PATTERN =
   "repeating-linear-gradient(45deg, rgba(148,163,184,0.08) 0px, rgba(148,163,184,0.08) 6px, transparent 6px, transparent 14px)";
 
 interface PositionedEvent {
+  reservation: Reservation;
+  top: number;
+  height: number;
+  left: number;
+  width: number;
+  start: number; // minutes since midnight
+  end: number; // minutes since midnight
+}
+
+interface CancelledSliver {
   reservation: Reservation;
   top: number;
   height: number;
@@ -100,6 +108,8 @@ function packOverlaps(reservations: Reservation[], openHour: number, slotDuratio
         height: Math.max((end - start) * PX_PER_MINUTE, 20),
         left: (col / totalColumns) * 100,
         width: (1 / totalColumns) * 100,
+        start,
+        end,
       });
     }
   }
@@ -110,35 +120,64 @@ function packOverlaps(reservations: Reservation[], openHour: number, slotDuratio
 // overlap (packOverlaps above) let the same court land in a different
 // sub-column on different days, undermining the color coding. Giving each
 // court a fixed horizontal band keeps it in the same relative order every
-// day; only courts with a booking that day get a band, so an empty court
+// day; only courts with a reservation that day get a band, so an empty court
 // doesn't leave dead space and shrink the rest into a corner.
+//
+// Cancelled bookings never enter packOverlaps (they'd otherwise compete for
+// column width with an active booking, which is exactly what made a
+// cancelled + active booking in the same slot look like a double-booking).
+// They're laid out separately as thin slivers pinned to the edge of their
+// court's band instead.
 function layoutDay(
   dayReservations: Reservation[],
   openHour: number,
   slotDurationMinutes: number,
   courtOrder?: string[]
-): PositionedEvent[] {
+): { active: PositionedEvent[]; cancelled: CancelledSliver[] } {
+  const active = dayReservations.filter((r) => r.status !== "cancelled");
+  const cancelled = dayReservations.filter((r) => r.status === "cancelled");
+
+  function sliverFor(r: Reservation, left: number, width: number): CancelledSliver {
+    const { start, end } = eventRange(r, slotDurationMinutes);
+    return {
+      reservation: r,
+      top: (start - openHour * 60) * PX_PER_MINUTE,
+      height: Math.max((end - start) * PX_PER_MINUTE, 12),
+      left,
+      width,
+    };
+  }
+
   if (!courtOrder || courtOrder.length === 0) {
-    return packOverlaps(dayReservations, openHour, slotDurationMinutes);
+    return {
+      active: packOverlaps(active, openHour, slotDurationMinutes),
+      cancelled: cancelled.map((r) => sliverFor(r, 0, 100)),
+    };
   }
 
   const presentCourts = courtOrder.filter((name) => dayReservations.some((r) => r.court === name));
-  if (presentCourts.length === 0) return [];
+  if (presentCourts.length === 0) return { active: [], cancelled: [] };
 
   const positioned: PositionedEvent[] = [];
+  const slivers: CancelledSliver[] = [];
   const bandWidth = 100 / presentCourts.length;
   presentCourts.forEach((courtName, laneIndex) => {
-    const laneReservations = dayReservations.filter((r) => r.court === courtName);
     const bandLeft = laneIndex * bandWidth;
-    for (const event of packOverlaps(laneReservations, openHour, slotDurationMinutes)) {
+    const laneActive = active.filter((r) => r.court === courtName);
+    const laneCancelled = cancelled.filter((r) => r.court === courtName);
+
+    for (const event of packOverlaps(laneActive, openHour, slotDurationMinutes)) {
       positioned.push({
         ...event,
         left: bandLeft + (event.left / 100) * bandWidth,
         width: (event.width / 100) * bandWidth,
       });
     }
+    for (const r of laneCancelled) {
+      slivers.push(sliverFor(r, bandLeft, bandWidth));
+    }
   });
-  return positioned;
+  return { active: positioned, cancelled: slivers };
 }
 
 function formatHourLabel(hour: number): string {
@@ -152,11 +191,15 @@ function formatEventTime(startHour: number): string {
   return dayjs().hour(Math.floor(totalMinutes / 60)).minute(totalMinutes % 60).format("h:mm A");
 }
 
-const STATUS_STYLE: Record<ReservationStatus, string> = {
-  confirmed: "",
-  pending: "border-dashed",
-  cancelled: "opacity-50 line-through",
-};
+function formatMinutesOfDay(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = Math.round(totalMinutes % 60);
+  return dayjs().hour(h).minute(m).format("HH:mm");
+}
+
+function formatEventTimeRange(startMinutes: number, endMinutes: number): string {
+  return `${formatMinutesOfDay(startMinutes)}–${formatMinutesOfDay(endMinutes)}`;
+}
 
 export function WeekCalendarGrid({
   days,
@@ -169,12 +212,12 @@ export function WeekCalendarGrid({
   onSlotClick,
   onEventClick,
 }: WeekCalendarGridProps) {
-  const byCourt = !!courts && days.length === 1;
+  const byCourt = days.length === 1;
   const today = dayjs().startOf("day");
   const courtOrder = Array.from(courtColors.keys());
 
   const columns: GridColumn[] = byCourt
-    ? courts!.map((c) => ({
+    ? courts.map((c) => ({
         key: c.name,
         date: days[0],
         court: c.name,
@@ -292,7 +335,7 @@ export function WeekCalendarGrid({
                 const columnReservations = reservations.filter(
                   (r) => r.date === dateId && (!column.court || r.court === column.court)
                 );
-                const positioned = layoutDay(
+                const { active: positioned, cancelled: slivers } = layoutDay(
                   columnReservations,
                   openHour,
                   slotDurationMinutes,
@@ -315,8 +358,11 @@ export function WeekCalendarGrid({
                       />
                     ))}
 
-                    {positioned.map(({ reservation, top, height, left, width }) => {
+                    {positioned.map(({ reservation, top, height, left, width, start, end }) => {
                       const color = courtColorFrom(courtColors, reservation.court);
+                      const timeLabel = byCourt
+                        ? formatEventTimeRange(start, end)
+                        : `${reservation.court} · ${formatEventTime(reservation.startHour)}`;
                       return (
                         <button
                           key={reservation.id}
@@ -325,7 +371,8 @@ export function WeekCalendarGrid({
                             e.stopPropagation();
                             onEventClick(reservation);
                           }}
-                          className={`absolute overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow hover:shadow-md ${color.bg} ${color.text} ${STATUS_STYLE[reservation.status]}`}
+                          title={byCourt ? `${reservation.customerName} · ${formatEventTimeRange(start, end)}` : undefined}
+                          className={`absolute overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow hover:shadow-md ${color.bg} ${color.text}`}
                           style={{
                             top,
                             height,
@@ -335,12 +382,19 @@ export function WeekCalendarGrid({
                           }}
                         >
                           <div className="truncate font-semibold">{reservation.customerName}</div>
-                          <div className="truncate opacity-80">
-                            {byCourt ? formatEventTime(reservation.startHour) : `${reservation.court} · ${formatEventTime(reservation.startHour)}`}
-                          </div>
+                          <div className="truncate opacity-80">{timeLabel}</div>
                         </button>
                       );
                     })}
+
+                    {slivers.map(({ reservation, top, height, left, width }) => (
+                      <div
+                        key={reservation.id}
+                        title={`Cancelled — ${reservation.customerName} · ${formatEventTime(reservation.startHour)}`}
+                        className="absolute w-1.5 rounded-full bg-slate-300 opacity-70"
+                        style={{ top, height, left: `calc(${left}% + ${width}% - 6px)` }}
+                      />
+                    ))}
                   </div>
                 );
               })}

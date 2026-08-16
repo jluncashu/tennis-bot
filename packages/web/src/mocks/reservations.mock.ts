@@ -103,28 +103,9 @@ export function addManualBooking(input: {
   return reservation;
 }
 
-// Edits made through ReservationDetailsModal. Generated reservations are
-// recomputed fresh from their date's hash on every call, so an edit can't
-// live on the object itself — it's kept here, keyed by id, and reapplied
-// after (re)generating. Manual bookings go through the same map for one
-// code path, rather than mutating manualBookings in place.
-const overrides = new Map<string, Partial<Pick<Reservation, "customerName" | "customerPhone" | "status">>>();
-
-export function updateReservation(
-  id: string,
-  patch: Partial<Pick<Reservation, "customerName" | "customerPhone" | "status">>
-): void {
-  overrides.set(id, { ...overrides.get(id), ...patch });
-}
-
-function applyOverride(r: Reservation): Reservation {
-  const patch = overrides.get(r.id);
-  return patch ? { ...r, ...patch } : r;
-}
-
 export function mockReservationsForDay(date: Date): Reservation[] {
   const dateId = toDateId(date);
   const generated = mockReservationsForDate(dateId);
   const manual = manualBookings.filter((b) => b.date === dateId);
-  return [...generated, ...manual].map(applyOverride).sort((a, b) => a.startHour - b.startHour);
+  return [...generated, ...manual].sort((a, b) => a.startHour - b.startHour);
 }

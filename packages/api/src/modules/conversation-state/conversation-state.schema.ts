@@ -4,7 +4,7 @@ import { clubs } from "../clubs/clubs.schema";
 export const conversationState = pgTable("conversation_state", {
     clubId: uuid("club_id").notNull().references(() => clubs.id),
     phone: text("phone").notNull(),
-    step: text("step").notNull(), // 'choose_date' | 'choose_court' | 'choose_time' | 'confirm'
+    step: text("step").notNull(), // 'choose_date' | 'choose_court' | 'choose_time' | 'choose_duration' | 'ask_name' | 'confirm' | 'cancel_pick'
     data: jsonb("data").notNull().default({}),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

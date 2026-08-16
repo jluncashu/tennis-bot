@@ -1,21 +1,34 @@
 import { useState } from "react";
-import type { Reservation, ReservationStatus } from "../mocks/reservations.mock";
+import dayjs from "dayjs";
+import type { Reservation } from "../mocks/reservations.mock";
+import { cancelBooking } from "../api/bookings.api";
+import { getErrorMessage } from "../api/auth.api";
 
 interface ReservationDetailsModalProps {
   reservation: Reservation;
   onClose: () => void;
-  onSave: (status: ReservationStatus) => void;
+  onCancelled: () => void;
 }
 
-const STATUS_OPTIONS: ReservationStatus[] = ["confirmed", "pending", "cancelled"];
+function formatTimeRange(startHour: number, durationMinutes: number): string {
+  const start = dayjs().hour(Math.floor(startHour)).minute(Math.round((startHour % 1) * 60));
+  return `${start.format("HH:mm")}–${start.add(durationMinutes, "minute").format("HH:mm")}`;
+}
 
-export function ReservationDetailsModal({ reservation, onClose, onSave }: ReservationDetailsModalProps) {
-  const [status, setStatus] = useState<ReservationStatus>(reservation.status);
-  const [saving, setSaving] = useState(false);
+export function ReservationDetailsModal({ reservation, onClose, onCancelled }: ReservationDetailsModalProps) {
+  const [cancelling, setCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSave() {
-    setSaving(true);
-    onSave(status);
+  async function handleCancel() {
+    setCancelling(true);
+    setError(null);
+    try {
+      await cancelBooking(reservation.id);
+      onCancelled();
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setCancelling(false);
+    }
   }
 
   return (
@@ -43,30 +56,26 @@ export function ReservationDetailsModal({ reservation, onClose, onSave }: Reserv
             <p className="mt-1 text-sm text-slate-900">{reservation.customerPhone}</p>
           </div>
           <div>
-            <label htmlFor="reservationStatus" className="block text-sm font-medium text-slate-700">
-              Status
-            </label>
-            <select
-              id="reservationStatus"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as ReservationStatus)}
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <span className="block text-sm font-medium text-slate-700">Court &amp; time</span>
+            <p className="mt-1 text-sm text-slate-900">
+              {reservation.court} · {dayjs(reservation.date).format("ddd, D MMM")} ·{" "}
+              {formatTimeRange(reservation.startHour, reservation.durationMinutes ?? 60)}
+            </p>
           </div>
+
+          {error && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
+              Couldn't cancel: {error}
+            </p>
+          )}
 
           <button
             type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="w-full rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Save"}
+            {cancelling ? "Cancelling…" : "Cancel booking"}
           </button>
         </div>
       </div>

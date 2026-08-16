@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/en-gb";
-import { updateReservation, type Reservation } from "../mocks/reservations.mock";
+import type { Reservation } from "../mocks/reservations.mock";
 import { getSettings, type CourtSettings } from "../mocks/settings.mock";
 import { addDays, startOfDay, startOfWeek, toDateId } from "../lib/date";
 import { BookingSearchModal } from "../components/BookingSearchModal";
 import { ReservationDetailsModal } from "../components/ReservationDetailsModal";
 import { WeekCalendarGrid } from "../components/WeekCalendarGrid";
 import { QuickAddPopover } from "../components/QuickAddPopover";
-import { listBookings, type ApiBooking } from "../api/bookings.api";
+import { listBookings, subscribeToBookingEvents, type ApiBooking } from "../api/bookings.api";
 import { listCourts, type ApiCourt } from "../api/courts.api";
 import { getErrorMessage } from "../api/auth.api";
 import { useCalendarStore } from "../store/calendar.store";
@@ -126,6 +126,15 @@ export function ReservationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeStart, viewMode]);
 
+  // Always call the latest refreshRange (which closes over the current date
+  // range) without reopening the SSE connection every time that range changes.
+  const refreshRangeRef = useRef(refreshRange);
+  refreshRangeRef.current = refreshRange;
+
+  useEffect(() => {
+    return subscribeToBookingEvents(() => refreshRangeRef.current());
+  }, []);
+
   const focusDate = useCalendarStore((s) => s.focusDate);
   useEffect(() => {
     if (!focusDate) return;
@@ -140,7 +149,9 @@ export function ReservationsPage() {
   const selectedReservation = reservations.find((r) => r.id === selectedReservationId) ?? null;
   const filteredReservations =
     courtFilter === "all" ? reservations : reservations.filter((r) => r.court === courtFilter);
-  const dayViewCourts = courts.filter((c) => courtFilter === "all" || c.name === courtFilter);
+  // Used for both views: per-court columns in Day view, and the occupancy
+  // segments + legend in Week view (see WeekCalendarGrid).
+  const visibleCourts = courts.filter((c) => courtFilter === "all" || c.name === courtFilter);
   // Built from the full, unfiltered court list so colors stay stable across
   // day/week view and the court filter, instead of shifting per-view subsets.
   const courtColors = useMemo(() => buildCourtColorMap(courts.map((c) => c.name)), [courts]);
@@ -257,8 +268,7 @@ export function ReservationsPage() {
         <ReservationDetailsModal
           reservation={selectedReservation}
           onClose={() => setSelectedReservationId(null)}
-          onSave={(status) => {
-            updateReservation(selectedReservation.id, { status });
+          onCancelled={() => {
             refreshRange();
             setSelectedReservationId(null);
           }}
@@ -288,7 +298,7 @@ export function ReservationsPage() {
             slotDurationMinutes={settings.slotDurationMinutes}
             openHour={settings.openHour}
             closeHour={settings.closeHour}
-            courts={viewMode === "day" ? dayViewCourts : undefined}
+            courts={visibleCourts}
             courtColors={courtColors}
             onSlotClick={(date, minuteOfDay, clientX, clientY, court) =>
               setPopover({ date, minuteOfDay, clientX, clientY, court })

@@ -9,6 +9,12 @@ interface AccessTokenPayload {
   type: string;
 }
 
+function verifyAccessToken(token: string): AccessTokenPayload {
+  const payload = jwt.verify(token, env.JWT_SECRET) as AccessTokenPayload;
+  if (payload.type !== "access") throw new Error("Invalid token type");
+  return payload;
+}
+
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
@@ -16,16 +22,26 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
     return next(httpError(401, "Missing or malformed Authorization header"));
   }
 
-  const token = authHeader.slice(7);
+  try {
+    req.user = { id: verifyAccessToken(authHeader.slice(7)).sub };
+    next();
+  } catch {
+    next(httpError(401, "Invalid or expired token"));
+  }
+}
+
+// EventSource (used for the dashboard's live-updates stream) can't set
+// custom headers, so the access token travels as a query param instead. The
+// short-lived (15m) access token keeps the exposure window small.
+export function requireAuthSSE(req: Request, _res: Response, next: NextFunction) {
+  const token = typeof req.query.token === "string" ? req.query.token : undefined;
+
+  if (!token) {
+    return next(httpError(401, "Missing token"));
+  }
 
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as AccessTokenPayload;
-
-    if (payload.type !== "access") {
-      return next(httpError(401, "Invalid token type"));
-    }
-
-    req.user = { id: payload.sub };
+    req.user = { id: verifyAccessToken(token).sub };
     next();
   } catch {
     next(httpError(401, "Invalid or expired token"));

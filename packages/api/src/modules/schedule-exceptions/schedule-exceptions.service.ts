@@ -6,10 +6,17 @@ import {
   deleteException,
 } from "./schedule-exceptions.repository";
 import { httpError } from "../../shared/http-error";
-import type { CreateExceptionBody } from "./schedule-exceptions.schema";
+import type { CreateExceptionBody, ScheduleException } from "./schedule-exceptions.schema";
 
 export async function listExceptions(clubId: string) {
   return findExceptionsForClub(clubId);
+}
+
+// A whole-day, club-wide closure: courtId null (applies to every court) and
+// startTime null (blocks the entire day, not just a window within it).
+export async function findClubWideClosure(clubId: string, date: string): Promise<ScheduleException | null> {
+  const exceptions = await findExceptionsForClub(clubId);
+  return exceptions.find((e) => e.courtId === null && e.date === date && e.startTime === null) ?? null;
 }
 
 export async function addException(clubId: string, data: CreateExceptionBody) {
