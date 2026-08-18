@@ -8,7 +8,7 @@ import { BookingSearchModal } from "../components/BookingSearchModal";
 import { ReservationDetailsModal } from "../components/ReservationDetailsModal";
 import { WeekCalendarGrid } from "../components/WeekCalendarGrid";
 import { QuickAddPopover } from "../components/QuickAddPopover";
-import { listBookings, subscribeToBookingEvents, type ApiBooking } from "../api/bookings.api";
+import { listBookings, subscribeToBookingEvents, exportBookings, type ApiBooking } from "../api/bookings.api";
 import { listCourts, type ApiCourt } from "../api/courts.api";
 import { getErrorMessage } from "../api/auth.api";
 import { useCalendarStore } from "../store/calendar.store";
@@ -58,6 +58,14 @@ function ChevronRightIcon() {
   );
 }
 
+function DownloadIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+    </svg>
+  );
+}
+
 export function ReservationsPage() {
   const [settings, setSettings] = useState<CourtSettings | null>(null);
   const [courts, setCourts] = useState<ApiCourt[]>([]);
@@ -66,6 +74,8 @@ export function ReservationsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [courtFilter, setCourtFilter] = useState<string>("all");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [bookingModalKey, setBookingModalKey] = useState(0);
@@ -112,6 +122,18 @@ export function ReservationsPage() {
 
   function goStep(direction: 1 | -1) {
     setRangeStart((d) => addDays(d, (viewMode === "week" ? 7 : 1) * direction));
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportBookings(toDateId(rangeStart));
+    } catch (err) {
+      setExportError(getErrorMessage(err));
+    } finally {
+      setExporting(false);
+    }
   }
 
   useEffect(() => {
@@ -234,6 +256,19 @@ export function ReservationsPage() {
             </button>
           </div>
 
+          {viewMode === "day" && (
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              title="Export this day's bookings to Excel"
+              className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <DownloadIcon />
+              {exporting ? "Exporting…" : "Export"}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {
@@ -250,6 +285,12 @@ export function ReservationsPage() {
       {loadError && (
         <div className="mx-6 mb-3 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
           Couldn't load reservations: {loadError}
+        </div>
+      )}
+
+      {exportError && (
+        <div className="mx-6 mb-3 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
+          Couldn't export: {exportError}
         </div>
       )}
 

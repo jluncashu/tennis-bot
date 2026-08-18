@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { listBookingsForClub, cancelBookingForClub, createManualBooking } from "./booking.service";
-import { createBookingSchema } from "./booking.schema";
+import { listBookingsForClub, cancelBookingForClub, createManualBooking, exportDailyGrid } from "./booking.service";
+import { createBookingSchema, exportBookingsQuerySchema } from "./booking.schema";
 import { subscribeToBookingEvents } from "../../services/booking-events.service";
 
 const SSE_HEARTBEAT_MS = 25000; // keeps idle connections (and proxies) from timing out
@@ -44,4 +44,18 @@ export async function createBookingController(req: Request, res: Response) {
 export async function cancelBookingController(req: Request, res: Response) {
   await cancelBookingForClub(req.params.id as string, req.user!.id);
   res.sendStatus(204);
+}
+
+export async function exportBookingsController(req: Request, res: Response) {
+  const parsed = exportBookingsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const { date } = parsed.data;
+  const buffer = await exportDailyGrid(req.user!.id, date);
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="bookings-${date}.xlsx"`);
+  res.send(Buffer.from(buffer));
 }

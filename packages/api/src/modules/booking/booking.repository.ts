@@ -1,4 +1,4 @@
-import { eq, and, asc, gte, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, gte, inArray } from "drizzle-orm";
 import { db } from "../../config/db";
 import { bookings, Booking, NewBooking } from "./booking.schema";
 import { courts } from "../courts/courts.schema";
@@ -59,6 +59,43 @@ export async function findUpcomingConfirmedBookingsForContact(
       )
     )
     .orderBy(asc(bookings.date), asc(bookings.startTime));
+  return rows.map((r) => ({ ...r.booking, courtName: r.courtName, customerName: r.customerName, customerPhone: r.customerPhone }));
+}
+
+// Confirmed only — the grid export has no room for a third visual state, so
+// a cancelled slot should just read as free rather than as "cancelled".
+export async function findConfirmedBookingsForClubOnDate(clubId: string, date: string): Promise<BookingWithDetails[]> {
+  const rows = await db
+    .select({
+      booking: bookings,
+      courtName: courts.name,
+      customerName: contacts.name,
+      customerPhone: contacts.phone,
+    })
+    .from(bookings)
+    .innerJoin(courts, eq(bookings.courtId, courts.id))
+    .innerJoin(contacts, eq(bookings.customerId, contacts.id))
+    .where(and(eq(courts.clubId, clubId), eq(bookings.date, date), eq(bookings.status, "confirmed")))
+    .orderBy(asc(courts.name), asc(bookings.startTime));
+  return rows.map((r) => ({ ...r.booking, courtName: r.courtName, customerName: r.customerName, customerPhone: r.customerPhone }));
+}
+
+// Full history for a customer (any status, most recent first) — used by the
+// customer detail view, unlike findUpcomingConfirmedBookingsForContact above
+// which only looks forward and only at confirmed bookings.
+export async function findBookingsForContactInClub(clubId: string, customerId: string): Promise<BookingWithDetails[]> {
+  const rows = await db
+    .select({
+      booking: bookings,
+      courtName: courts.name,
+      customerName: contacts.name,
+      customerPhone: contacts.phone,
+    })
+    .from(bookings)
+    .innerJoin(courts, eq(bookings.courtId, courts.id))
+    .innerJoin(contacts, eq(bookings.customerId, contacts.id))
+    .where(and(eq(courts.clubId, clubId), eq(bookings.customerId, customerId)))
+    .orderBy(desc(bookings.date), desc(bookings.startTime));
   return rows.map((r) => ({ ...r.booking, courtName: r.courtName, customerName: r.customerName, customerPhone: r.customerPhone }));
 }
 

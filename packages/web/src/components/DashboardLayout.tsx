@@ -58,6 +58,17 @@ export function DashboardLayout() {
             Reservations
           </NavLink>
 
+          <NavLink
+            to="/customers"
+            className={({ isActive }) =>
+              `block rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                isActive ? "text-emerald-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              }`
+            }
+          >
+            Customers
+          </NavLink>
+
           <div>
             <button
               type="button"

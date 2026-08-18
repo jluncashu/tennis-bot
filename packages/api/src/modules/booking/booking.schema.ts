@@ -40,3 +40,9 @@ export const createBookingSchema = z.object({
 });
 
 export type CreateBookingBody = z.infer<typeof createBookingSchema>;
+
+export const exportBookingsQuerySchema = z.object({
+  date: z.string().regex(dateRegex, "Expected YYYY-MM-DD"),
+});
+
+export type ExportBookingsQuery = z.infer<typeof exportBookingsQuerySchema>;

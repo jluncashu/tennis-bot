@@ -5,6 +5,7 @@ import {
   createBookingController,
   cancelBookingController,
   streamBookingEvents,
+  exportBookingsController,
 } from "./booking.controller";
 
 export const bookingRouter = Router();
@@ -16,5 +17,6 @@ bookingRouter.get("/events", requireAuthSSE, streamBookingEvents);
 bookingRouter.use(requireAuth);
 
 bookingRouter.get("/", listBookingsController);
+bookingRouter.get("/export", exportBookingsController);
 bookingRouter.post("/", createBookingController);
 bookingRouter.delete("/:id", cancelBookingController);

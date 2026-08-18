@@ -1,9 +1,12 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { db } from "../../config/db";
 import { Court, courts, NewCourt } from "./courts.schema";
 
+// Order matters: the frontend assigns court colors by list position (see
+// buildCourtColorMap), so this needs a stable, explicit order rather than
+// whatever Postgres happens to return.
 export async function findCourtsByClub(clubId: string): Promise<Court[]> {
-  return db.select().from(courts).where(eq(courts.clubId, clubId));
+  return db.select().from(courts).where(eq(courts.clubId, clubId)).orderBy(asc(courts.createdAt));
 }
 
 export async function findCourtById(id: string, clubId: string): Promise<Court | null> {

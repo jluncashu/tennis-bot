@@ -27,7 +27,7 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): b
 
 // Day-of-week of a calendar date is a pure calendar fact, independent of
 // any timezone — parsing at UTC noon avoids any DST/offset edge case.
-function dayOfWeek(date: string): number {
+export function dayOfWeek(date: string): number {
   const [y, m, d] = date.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }

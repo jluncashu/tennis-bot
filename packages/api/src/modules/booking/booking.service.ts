@@ -1,14 +1,18 @@
-import { getCourt } from "../courts/courts.service";
-import { isRangeAvailable, todayInTimezone } from "../booking-availability/booking-availability.service";
+import { getCourt, listCourts } from "../courts/courts.service";
+import { isRangeAvailable, todayInTimezone, dayOfWeek } from "../booking-availability/booking-availability.service";
 import { findOrCreateContact } from "../contacts/contacts.service";
 import { findClubById } from "../auth/auth.repository";
+import { findRulesByCourt } from "../availability-rules/availability-rules.repository";
 import {
   findBookingsForClub,
   findBookingById,
   findUpcomingConfirmedBookingsForContact,
+  findBookingsForContactInClub,
+  findConfirmedBookingsForClubOnDate,
   createBooking,
   cancelBooking,
 } from "./booking.repository";
+import { buildDailyGridWorkbook, type GridBooking, type GridWindow } from "./booking-export";
 import { httpError } from "../../shared/http-error";
 import { emitBookingsChanged } from "../../services/booking-events.service";
 
@@ -16,6 +20,44 @@ const UNIQUE_VIOLATION = "23505"; // Postgres error code
 
 export async function listBookingsForClub(clubId: string) {
   return findBookingsForClub(clubId);
+}
+
+export async function listBookingsForContactInClub(clubId: string, customerId: string) {
+  return findBookingsForContactInClub(clubId, customerId);
+}
+
+export async function exportDailyGrid(clubId: string, date: string) {
+  const club = await findClubById(clubId);
+  if (!club) throw httpError(404, "Club not found");
+
+  const clubCourts = await listCourts(clubId); // stable, dashboard-matching order
+  const dow = dayOfWeek(date);
+
+  const rulesByCourt = await Promise.all(clubCourts.map((c) => findRulesByCourt(c.id)));
+  const openRulesByCourtId = new Map<string, GridWindow[]>(
+    clubCourts.map((c, i) => [
+      c.id,
+      rulesByCourt[i].filter((r) => r.dayOfWeek === dow).map((r) => ({ startTime: r.startTime, endTime: r.endTime })),
+    ])
+  );
+
+  const slotDurationMinutesByCourtId = new Map(
+    clubCourts.map((c) => [c.id, c.slotDurationMinutes ?? club.defaultSlotDurationMinutes])
+  );
+
+  const bookingsByCourtId = new Map<string, GridBooking[]>(clubCourts.map((c) => [c.id, []]));
+  for (const b of await findConfirmedBookingsForClubOnDate(clubId, date)) {
+    bookingsByCourtId.get(b.courtId)?.push({ startTime: b.startTime, endTime: b.endTime, customerName: b.customerName });
+  }
+
+  return buildDailyGridWorkbook({
+    clubName: club.name,
+    date,
+    courts: clubCourts.map((c) => ({ id: c.id, name: c.name })),
+    openRulesByCourtId,
+    bookingsByCourtId,
+    slotDurationMinutesByCourtId,
+  });
 }
 
 export async function createBookingForCustomer(
