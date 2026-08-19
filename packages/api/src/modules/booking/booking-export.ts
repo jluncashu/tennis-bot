@@ -103,8 +103,8 @@ export async function buildDailyGridWorkbook(input: DailyGridInput): Promise<Exc
   const sheet = workbook.addWorksheet("Bookings");
   const colCount = 1 + courts.length;
 
-  sheet.getColumn(1).width = 8;
-  courts.forEach((_, i) => (sheet.getColumn(2 + i).width = 20));
+  sheet.getColumn(1).width = 11;
+  courts.forEach((_, i) => (sheet.getColumn(2 + i).width = 28));
 
   sheet.mergeCells(1, 1, 1, colCount);
   const titleCell = sheet.getCell(1, 1);
@@ -114,12 +114,12 @@ export async function buildDailyGridWorkbook(input: DailyGridInput): Promise<Exc
 
   const headerRowIndex = 3;
   const headerRow = sheet.getRow(headerRowIndex);
-  headerRow.height = 22;
+  headerRow.height = 30;
   courts.forEach((court, i) => {
     const isOpenToday = (openRulesByCourtId.get(court.id) ?? []).length > 0;
     const cell = headerRow.getCell(2 + i);
     cell.value = court.name;
-    cell.font = { bold: true, color: { argb: isOpenToday ? "FFFFFFFF" : `FF${CLOSED_TEXT}` } };
+    cell.font = { bold: true, size: 12, color: { argb: isOpenToday ? "FFFFFFFF" : `FF${CLOSED_TEXT}` } };
     cell.fill = solidFill(isOpenToday ? COURT_PALETTE[i % COURT_PALETTE.length].fill : CLOSED_FILL);
     cell.alignment = { horizontal: "center", vertical: "middle" };
   });
@@ -128,15 +128,18 @@ export async function buildDailyGridWorkbook(input: DailyGridInput): Promise<Exc
   // booking's vertical merge, so a multi-row booking isn't rendered again
   // in the rows it spans.
   const consumedUntilRowIdx = new Map<string, number>(courts.map((c) => [c.id, -1]));
+  // Every multi-row merge, so the grid-line pass below can skip the border
+  // that would otherwise cut through the middle of a merged booking cell.
+  const merges: { col: number; startRow: number; endRow: number }[] = [];
 
   rowStarts.forEach((rowStartMinutes, rowIdx) => {
     const excelRow = headerRowIndex + 1 + rowIdx;
     const row = sheet.getRow(excelRow);
-    row.height = 20;
+    row.height = 34;
 
     const timeCell = row.getCell(1);
     timeCell.value = toTimeLabel(rowStartMinutes);
-    timeCell.font = { bold: true };
+    timeCell.font = { bold: true, size: 11 };
     timeCell.alignment = { horizontal: "right", vertical: "middle" };
 
     courts.forEach((court, i) => {
@@ -163,15 +166,19 @@ export async function buildDailyGridWorkbook(input: DailyGridInput): Promise<Exc
 
       const spanRows = Math.max(1, Math.round((toMinutes(booking.endTime) - toMinutes(booking.startTime)) / rowMinutes));
       const lastRowIdx = rowIdx + spanRows - 1;
+      const lastExcelRowOfMerge = headerRowIndex + 1 + lastRowIdx;
       consumedUntilRowIdx.set(court.id, lastRowIdx);
 
-      if (spanRows > 1) sheet.mergeCells(excelRow, colIndex, headerRowIndex + 1 + lastRowIdx, colIndex);
+      if (spanRows > 1) {
+        sheet.mergeCells(excelRow, colIndex, lastExcelRowOfMerge, colIndex);
+        merges.push({ col: colIndex, startRow: excelRow, endRow: lastExcelRowOfMerge });
+      }
 
       const cell = sheet.getCell(excelRow, colIndex);
       cell.value = {
         richText: [
-          { font: { bold: true }, text: booking.customerName ?? "" },
-          { font: {}, text: `\n${toTimeLabel(toMinutes(booking.startTime))}–${toTimeLabel(toMinutes(booking.endTime))}` },
+          { font: { bold: true, size: 11 }, text: booking.customerName ?? "" },
+          { font: { size: 10 }, text: `\n${toTimeLabel(toMinutes(booking.startTime))}–${toTimeLabel(toMinutes(booking.endTime))}` },
         ],
       };
       cell.fill = solidFill(COURT_PALETTE[i % COURT_PALETTE.length].tint);
@@ -179,20 +186,20 @@ export async function buildDailyGridWorkbook(input: DailyGridInput): Promise<Exc
     });
   });
 
-  // Header underline + outer boundary around the whole table, not a border
-  // on every individual cell.
+  // Grid lines across the whole table (header + every time row). A merged
+  // multi-row booking cell only gets its outer edge bordered — no divider
+  // line cutting through the middle of it.
   const lastExcelRow = headerRowIndex + rowStarts.length;
-  for (let col = 1; col <= colCount; col++) {
-    const top = sheet.getCell(headerRowIndex, col);
-    top.border = { ...top.border, top: thinBorder, bottom: thinBorder };
-    const bottom = sheet.getCell(lastExcelRow, col);
-    bottom.border = { ...bottom.border, bottom: thinBorder };
-  }
   for (let row = headerRowIndex; row <= lastExcelRow; row++) {
-    const left = sheet.getCell(row, 1);
-    left.border = { ...left.border, left: thinBorder };
-    const right = sheet.getCell(row, colCount);
-    right.border = { ...right.border, right: thinBorder };
+    for (let col = 1; col <= colCount; col++) {
+      const merge = merges.find((m) => m.col === col && row >= m.startRow && row <= m.endRow);
+      sheet.getCell(row, col).border = {
+        top: !merge || row === merge.startRow ? thinBorder : undefined,
+        bottom: !merge || row === merge.endRow ? thinBorder : undefined,
+        left: thinBorder,
+        right: thinBorder,
+      };
+    }
   }
 
   return workbook.xlsx.writeBuffer();
