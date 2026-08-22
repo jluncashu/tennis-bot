@@ -32,7 +32,7 @@ export function dayOfWeek(date: string): number {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
-function addDays(date: string, days: number): string {
+export function addDays(date: string, days: number): string {
   const [y, m, d] = date.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + days);
@@ -163,4 +163,107 @@ export async function getAvailableDates(
     results.push({ date, hasAvailability });
   }
   return results;
+}
+
+export interface SearchParams {
+  daysOfWeek: number[]; // empty = every day
+  startTime: string; // HH:MM
+  durationMinutes: number;
+  courtType: "any" | "covered" | "uncovered";
+  courtId?: string; // undefined = any court
+}
+
+export interface SearchSlot {
+  date: string;
+  weekday: number;
+  courtId: string;
+  courtName: string;
+  covered: boolean;
+  startTime: string;
+  endTime: string;
+}
+
+export interface SearchLongTermOpportunity {
+  courtId: string;
+  courtName: string;
+  covered: boolean;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  dates: string[];
+}
+
+export interface SearchResult {
+  slots: SearchSlot[];
+  longTerm: SearchLongTermOpportunity | null;
+}
+
+const SEARCH_WEEKS_AHEAD = 4;
+
+// Real backend equivalent of the dashboard's old client-side mock search:
+// scans upcoming dates for a (court, date) pair where [startTime,
+// startTime+durationMinutes) is actually free (rules, exceptions, and
+// existing bookings all honored via isRangeAvailable), then flags a
+// "long-term" opportunity when one court is free at that same weekday/time
+// across every occurrence considered in the window.
+export async function searchAvailability(clubId: string, params: SearchParams): Promise<SearchResult> {
+  const club = await findClubById(clubId);
+  if (!club) throw httpError(404, "Club not found");
+
+  const allCourts = await listCourts(clubId);
+  const candidateCourts = allCourts.filter(
+    (c) =>
+      (params.courtType === "any" || c.covered === (params.courtType === "covered")) &&
+      (params.courtId === undefined || c.id === params.courtId)
+  );
+  if (candidateCourts.length === 0) return { slots: [], longTerm: null };
+
+  const endTime = toTimeString(toMinutes(params.startTime) + params.durationMinutes);
+  const startDate = todayInTimezone(club.timezone);
+
+  const slots: SearchSlot[] = [];
+  const consideredByGroup = new Map<string, string[]>();
+  const freeByGroup = new Map<string, string[]>();
+
+  for (let i = 0; i < SEARCH_WEEKS_AHEAD * 7; i++) {
+    const date = addDays(startDate, i);
+    const weekday = dayOfWeek(date);
+    if (params.daysOfWeek.length > 0 && !params.daysOfWeek.includes(weekday)) continue;
+
+    for (const court of candidateCourts) {
+      const groupKey = `${court.id}__${weekday}`;
+      consideredByGroup.set(groupKey, [...(consideredByGroup.get(groupKey) ?? []), date]);
+
+      const available = await isRangeAvailable(clubId, court.id, date, params.startTime, endTime);
+      if (!available) continue;
+
+      slots.push({ date, weekday, courtId: court.id, courtName: court.name, covered: court.covered, startTime: params.startTime, endTime });
+      freeByGroup.set(groupKey, [...(freeByGroup.get(groupKey) ?? []), date]);
+    }
+  }
+
+  slots.sort((a, b) => a.date.localeCompare(b.date) || a.courtName.localeCompare(b.courtName));
+
+  // Free on every considered occurrence of that weekday for that court, with
+  // at least 3 occurrences in the window.
+  let longTerm: SearchLongTermOpportunity | null = null;
+  for (const [groupKey, freeDates] of freeByGroup) {
+    const considered = consideredByGroup.get(groupKey) ?? [];
+    if (considered.length < 3 || freeDates.length !== considered.length) continue;
+
+    const [courtId, weekdayStr] = groupKey.split("__");
+    const court = candidateCourts.find((c) => c.id === courtId)!;
+    longTerm = {
+      courtId: court.id,
+      courtName: court.name,
+      covered: court.covered,
+      weekday: Number(weekdayStr),
+      startTime: params.startTime,
+      endTime,
+      dates: freeDates,
+    };
+    break;
+  }
+
+  return { slots, longTerm };
 }

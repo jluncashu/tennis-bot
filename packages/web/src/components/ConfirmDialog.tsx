@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface ConfirmDialogProps {
   title: string;
   message: string;
@@ -11,12 +13,13 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   message,
-  confirmLabel = "Delete",
+  confirmLabel,
   confirming = false,
   error = null,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white shadow-xl">
@@ -32,7 +35,7 @@ export function ConfirmDialog({
             disabled={confirming}
             className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -40,7 +43,7 @@ export function ConfirmDialog({
             disabled={confirming}
             className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {confirming ? "Deleting…" : confirmLabel}
+            {confirming ? t("common.deleting") : (confirmLabel ?? t("common.delete"))}
           </button>
         </div>
       </div>

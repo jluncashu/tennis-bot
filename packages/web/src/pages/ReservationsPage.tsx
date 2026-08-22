@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
-import "dayjs/locale/en-gb";
-import type { Reservation } from "../mocks/reservations.mock";
-import { getSettings, type CourtSettings } from "../mocks/settings.mock";
+import { useTranslation } from "react-i18next";
+import type { Reservation } from "../types/reservation";
 import { addDays, startOfDay, startOfWeek, toDateId } from "../lib/date";
 import { BookingSearchModal } from "../components/BookingSearchModal";
 import { ReservationDetailsModal } from "../components/ReservationDetailsModal";
 import { WeekCalendarGrid } from "../components/WeekCalendarGrid";
 import { QuickAddPopover } from "../components/QuickAddPopover";
 import { listBookings, subscribeToBookingEvents, exportBookings, type ApiBooking } from "../api/bookings.api";
-import { listCourts, type ApiCourt } from "../api/courts.api";
+import { listCourts, type ApiCourtWithRules } from "../api/courts.api";
 import { getErrorMessage } from "../api/auth.api";
 import { useCalendarStore } from "../store/calendar.store";
+import { useAuthStore } from "../store/auth.store";
 import { buildCourtColorMap } from "../lib/courtColors";
 
-dayjs.locale("en-gb");
+const FALLBACK_OPEN_HOUR = 8;
+const FALLBACK_CLOSE_HOUR = 22;
+const FALLBACK_SLOT_DURATION = 60;
 
 type ViewMode = "day" | "week";
 
@@ -67,8 +69,10 @@ function DownloadIcon() {
 }
 
 export function ReservationsPage() {
-  const [settings, setSettings] = useState<CourtSettings | null>(null);
-  const [courts, setCourts] = useState<ApiCourt[]>([]);
+  const { t } = useTranslation();
+  const club = useAuthStore((s) => s.club);
+  const [courts, setCourts] = useState<ApiCourtWithRules[]>([]);
+  const [courtsLoaded, setCourtsLoaded] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [rangeStart, setRangeStart] = useState(() => startOfDay(new Date()));
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -93,9 +97,10 @@ export function ReservationsPage() {
 
   async function refreshRange() {
     try {
-      const bookings = await listBookings();
-      const dateIds = new Set(days.map((d) => toDateId(d)));
-      setReservations(bookings.filter((b) => dateIds.has(b.date)).map(apiBookingToReservation));
+      const from = toDateId(days[0]);
+      const to = toDateId(days[days.length - 1]);
+      const bookings = await listBookings(from, to);
+      setReservations(bookings.map(apiBookingToReservation));
       setLoadError(null);
     } catch (err) {
       setLoadError(getErrorMessage(err));
@@ -137,10 +142,10 @@ export function ReservationsPage() {
   }
 
   useEffect(() => {
-    setSettings(getSettings());
     listCourts()
       .then(setCourts)
-      .catch((err) => setLoadError(getErrorMessage(err)));
+      .catch((err) => setLoadError(getErrorMessage(err)))
+      .finally(() => setCourtsLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -178,6 +183,42 @@ export function ReservationsPage() {
   // day/week view and the court filter, instead of shifting per-view subsets.
   const courtColors = useMemo(() => buildCourtColorMap(courts.map((c) => c.name)), [courts]);
 
+  // Derives the calendar's visible hour range and row granularity from real
+  // per-court availability_rules for whichever weekday(s) are on screen,
+  // instead of a single hardcoded club-wide range — mirrors the same
+  // min-start/max-end/finest-duration logic used server-side for the Excel
+  // grid export, so the two stay visually consistent.
+  const { openHour, closeHour, slotDurationMinutes } = useMemo(() => {
+    const defaultDuration = club?.defaultSlotDurationMinutes ?? FALLBACK_SLOT_DURATION;
+    const dows = new Set(days.map((d) => d.getDay()));
+
+    let earliestMin: number | null = null;
+    let latestMin: number | null = null;
+    const durations: number[] = [];
+
+    for (const court of courts) {
+      const rules = court.rules.filter((r) => dows.has(r.dayOfWeek));
+      if (rules.length === 0) continue;
+      durations.push(court.slotDurationMinutes ?? defaultDuration);
+      for (const r of rules) {
+        const [sh, sm] = r.startTime.split(":").map(Number);
+        const [eh, em] = r.endTime.split(":").map(Number);
+        const startMin = sh * 60 + sm;
+        const endMin = eh * 60 + em;
+        earliestMin = earliestMin === null ? startMin : Math.min(earliestMin, startMin);
+        latestMin = latestMin === null ? endMin : Math.max(latestMin, endMin);
+      }
+    }
+
+    const openHour = earliestMin !== null ? Math.floor(earliestMin / 60) : FALLBACK_OPEN_HOUR;
+    const closeHourRaw = latestMin !== null ? Math.ceil(latestMin / 60) : FALLBACK_CLOSE_HOUR;
+    return {
+      openHour,
+      closeHour: Math.max(closeHourRaw, openHour + 1),
+      slotDurationMinutes: durations.length > 0 ? Math.min(...durations) : defaultDuration,
+    };
+  }, [days, courts, club]);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-6 py-4">
@@ -189,13 +230,13 @@ export function ReservationsPage() {
             disabled={isCurrent}
             className="rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Today
+            {t("common.today")}
           </button>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => goStep(-1)}
-              aria-label="Previous"
+              aria-label={t("common.previous")}
               className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
             >
               <ChevronLeftIcon />
@@ -203,7 +244,7 @@ export function ReservationsPage() {
             <button
               type="button"
               onClick={() => goStep(1)}
-              aria-label="Next"
+              aria-label={t("common.next")}
               className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
             >
               <ChevronRightIcon />
@@ -218,7 +259,7 @@ export function ReservationsPage() {
               onChange={(e) => setCourtFilter(e.target.value)}
               className="rounded-full border-0 bg-slate-100 px-4 py-1.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
             >
-              <option value="all">All courts</option>
+              <option value="all">{t("reservations.allCourts")}</option>
               {courts.map((court) => (
                 <option key={court.name} value={court.name}>
                   {court.name}
@@ -235,7 +276,7 @@ export function ReservationsPage() {
                 viewMode === "day" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              Day
+              {t("reservations.day")}
             </button>
             <button
               type="button"
@@ -244,15 +285,15 @@ export function ReservationsPage() {
                 viewMode === "week" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              Week
+              {t("reservations.week")}
             </button>
             <button
               type="button"
               disabled
-              title="Month view isn't built yet"
+              title={t("reservations.monthTooltip")}
               className="cursor-not-allowed rounded-full px-4 py-1.5 text-sm font-medium text-slate-300"
             >
-              Month
+              {t("reservations.month")}
             </button>
           </div>
 
@@ -261,11 +302,11 @@ export function ReservationsPage() {
               type="button"
               onClick={handleExport}
               disabled={exporting}
-              title="Export this day's bookings to Excel"
+              title={t("reservations.exportTooltip")}
               className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <DownloadIcon />
-              {exporting ? "Exporting…" : "Export"}
+              {exporting ? t("reservations.exporting") : t("reservations.export")}
             </button>
           )}
 
@@ -277,33 +318,30 @@ export function ReservationsPage() {
             }}
             className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
           >
-            New booking
+            {t("reservations.newBooking")}
           </button>
         </div>
       </div>
 
       {loadError && (
         <div className="mx-6 mb-3 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
-          Couldn't load reservations: {loadError}
+          {t("reservations.loadErrorPrefix", { error: loadError })}
         </div>
       )}
 
       {exportError && (
         <div className="mx-6 mb-3 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
-          Couldn't export: {exportError}
+          {t("reservations.exportErrorPrefix", { error: exportError })}
         </div>
       )}
 
-      {settings && (
-        <BookingSearchModal
-          key={bookingModalKey}
-          open={bookingModalOpen}
-          onClose={() => setBookingModalOpen(false)}
-          settings={{ ...settings, courts }}
-          onBooked={refreshRange}
-          quickBook={null}
-        />
-      )}
+      <BookingSearchModal
+        key={bookingModalKey}
+        open={bookingModalOpen}
+        onClose={() => setBookingModalOpen(false)}
+        courts={courts}
+        onBooked={refreshRange}
+      />
 
       {selectedReservation && (
         <ReservationDetailsModal
@@ -316,7 +354,7 @@ export function ReservationsPage() {
         />
       )}
 
-      {popover && settings && (
+      {popover && (
         <QuickAddPopover
           date={popover.date}
           minuteOfDay={popover.minuteOfDay}
@@ -325,20 +363,20 @@ export function ReservationsPage() {
           courts={courts}
           courtColors={courtColors}
           initialCourt={popover.court}
-          slotDurationMinutes={settings.slotDurationMinutes}
+          slotDurationMinutes={slotDurationMinutes}
           onClose={() => setPopover(null)}
           onBooked={refreshRange}
         />
       )}
 
-      {settings ? (
+      {courtsLoaded ? (
         <div className="min-h-0 flex-1">
           <WeekCalendarGrid
             days={days}
             reservations={filteredReservations}
-            slotDurationMinutes={settings.slotDurationMinutes}
-            openHour={settings.openHour}
-            closeHour={settings.closeHour}
+            slotDurationMinutes={slotDurationMinutes}
+            openHour={openHour}
+            closeHour={closeHour}
             courts={visibleCourts}
             courtColors={courtColors}
             onSlotClick={(date, minuteOfDay, clientX, clientY, court) =>
@@ -348,7 +386,7 @@ export function ReservationsPage() {
           />
         </div>
       ) : (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <p className="text-sm text-slate-500">{t("common.loading")}</p>
       )}
     </div>
   );

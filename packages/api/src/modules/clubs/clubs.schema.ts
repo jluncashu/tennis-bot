@@ -1,4 +1,4 @@
-import { pgTable, smallint, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { pgTable, integer, smallint, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const clubs = pgTable("clubs", {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -8,6 +8,7 @@ export const clubs = pgTable("clubs", {
     whatsappPhoneNumberId: text("whatsapp_phone_number_id").unique(),
     timezone: text("timezone").notNull().default("Europe/Bucharest"),
     defaultSlotDurationMinutes: smallint("default_slot_duration_minutes").notNull().default(60),
+    defaultPriceRon: integer("default_price_ron").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 

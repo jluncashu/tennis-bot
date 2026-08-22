@@ -1,9 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createCourt, deleteCourt, listCourts, updateCourt, type ApiCourt } from "../api/courts.api";
 import { getErrorMessage } from "../api/auth.api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CourtRulesModal } from "../components/CourtRulesModal";
 
 export function CourtsPage() {
+  const { t } = useTranslation();
   const [courts, setCourts] = useState<ApiCourt[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +28,8 @@ export function CourtsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [rulesTarget, setRulesTarget] = useState<ApiCourt | null>(null);
+
   function refreshCourts() {
     return listCourts()
       .then((data) => {
@@ -40,7 +45,7 @@ export function CourtsPage() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return setSaveError("Court name is required.");
+    if (!name.trim()) return setSaveError(t("courts.nameRequired"));
 
     setSaving(true);
     setSaveError(null);
@@ -75,7 +80,7 @@ export function CourtsPage() {
   }
 
   async function handleSaveEdit(id: string) {
-    if (!editName.trim()) return setEditError("Court name is required.");
+    if (!editName.trim()) return setEditError(t("courts.nameRequired"));
 
     setEditSaving(true);
     setEditError(null);
@@ -112,32 +117,32 @@ export function CourtsPage() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-semibold text-slate-900">Courts</h1>
-      <p className="mt-1 text-sm text-slate-500">Add the courts your club has available for booking.</p>
+      <h1 className="text-2xl font-semibold text-slate-900">{t("courts.title")}</h1>
+      <p className="mt-1 text-sm text-slate-500">{t("courts.subtitle")}</p>
 
       <section className="mt-6 max-w-md rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-slate-900">Create court</h2>
+        <h2 className="text-sm font-semibold text-slate-900">{t("courts.createTitle")}</h2>
 
         <form onSubmit={handleCreate} className="mt-4 space-y-4">
           <div>
             <label htmlFor="courtName" className="block text-sm font-medium text-slate-700">
-              Name
+              {t("courts.nameLabel")}
             </label>
             <input
               id="courtName"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Teren 1"
+              placeholder={t("courts.namePlaceholder")}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
           </div>
 
           <div>
             <label htmlFor="courtSlotDuration" className="block text-sm font-medium text-slate-700">
-              Slot duration (minutes)
+              {t("courts.slotDurationLabel")}
             </label>
-            <p className="mt-0.5 text-xs text-slate-500">Leave blank to use the club's default.</p>
+            <p className="mt-0.5 text-xs text-slate-500">{t("courts.slotDurationHint")}</p>
             <input
               id="courtSlotDuration"
               type="number"
@@ -150,7 +155,7 @@ export function CourtsPage() {
           </div>
 
           <div>
-            <span className="block text-sm font-medium text-slate-700">Court type</span>
+            <span className="block text-sm font-medium text-slate-700">{t("courts.courtType")}</span>
             <div className="mt-1 flex gap-1.5">
               <button
                 type="button"
@@ -159,7 +164,7 @@ export function CourtsPage() {
                   !covered ? "bg-emerald-600 text-white ring-emerald-600" : "text-slate-600 ring-slate-300 hover:bg-slate-100"
                 }`}
               >
-                Outdoor
+                {t("courts.outdoor")}
               </button>
               <button
                 type="button"
@@ -168,7 +173,7 @@ export function CourtsPage() {
                   covered ? "bg-emerald-600 text-white ring-emerald-600" : "text-slate-600 ring-slate-300 hover:bg-slate-100"
                 }`}
               >
-                Indoor
+                {t("courts.indoor")}
               </button>
             </div>
           </div>
@@ -180,18 +185,18 @@ export function CourtsPage() {
             disabled={saving}
             className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
-            {saving ? "Adding…" : "Add court"}
+            {saving ? t("common.adding") : t("courts.addCourt")}
           </button>
         </form>
       </section>
 
       <section className="mt-6 max-w-md rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-slate-900">Existing courts</h2>
+        <h2 className="text-sm font-semibold text-slate-900">{t("courts.existingTitle")}</h2>
 
-        {loadError && <p className="mt-3 text-sm text-red-600">Couldn't load courts: {loadError}</p>}
-        {!loadError && loading && <p className="mt-3 text-sm text-slate-500">Loading…</p>}
+        {loadError && <p className="mt-3 text-sm text-red-600">{t("courts.loadErrorPrefix", { error: loadError })}</p>}
+        {!loadError && loading && <p className="mt-3 text-sm text-slate-500">{t("common.loading")}</p>}
         {!loadError && !loading && courts.length === 0 && (
-          <p className="mt-3 text-sm text-slate-500">No courts yet — add your first one above.</p>
+          <p className="mt-3 text-sm text-slate-500">{t("courts.noneYet")}</p>
         )}
 
         {courts.length > 0 && (
@@ -206,7 +211,7 @@ export function CourtsPage() {
                         type="text"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        placeholder="Court name"
+                        placeholder={t("courts.editNamePlaceholder")}
                         className="block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                       />
                       <input
@@ -214,7 +219,7 @@ export function CourtsPage() {
                         min={1}
                         value={editSlotDuration}
                         onChange={(e) => setEditSlotDuration(e.target.value)}
-                        placeholder="Slot duration (minutes)"
+                        placeholder={t("courts.editSlotDurationPlaceholder")}
                         className="block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                       />
                       <div className="flex gap-1.5">
@@ -227,7 +232,7 @@ export function CourtsPage() {
                               : "text-slate-600 ring-slate-300 hover:bg-slate-100"
                           }`}
                         >
-                          Outdoor
+                          {t("courts.outdoor")}
                         </button>
                         <button
                           type="button"
@@ -238,7 +243,7 @@ export function CourtsPage() {
                               : "text-slate-600 ring-slate-300 hover:bg-slate-100"
                           }`}
                         >
-                          Indoor
+                          {t("courts.indoor")}
                         </button>
                       </div>
                       {editError && <p className="text-xs text-red-600">{editError}</p>}
@@ -249,7 +254,7 @@ export function CourtsPage() {
                           disabled={editSaving}
                           className="rounded-md px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
                         >
-                          Cancel
+                          {t("common.cancel")}
                         </button>
                         <button
                           type="button"
@@ -257,7 +262,7 @@ export function CourtsPage() {
                           disabled={editSaving}
                           className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                         >
-                          {editSaving ? "Saving…" : "Save"}
+                          {editSaving ? t("common.saving") : t("common.save")}
                         </button>
                       </div>
                     </div>
@@ -266,17 +271,26 @@ export function CourtsPage() {
                       <div>
                         <p className="text-sm font-medium text-slate-900">{court.name}</p>
                         <p className="text-xs text-slate-500">
-                          {court.covered ? "Indoor" : "Outdoor"} ·{" "}
-                          {court.slotDurationMinutes ? `${court.slotDurationMinutes} min slots` : "Default slot duration"}
+                          {court.covered ? t("courts.indoor") : t("courts.outdoor")} ·{" "}
+                          {court.slotDurationMinutes
+                            ? t("courts.minSlots", { count: court.slotDurationMinutes })
+                            : t("courts.defaultSlotDuration")}
                         </p>
                       </div>
                       <div className="flex shrink-0 gap-1.5">
                         <button
                           type="button"
+                          onClick={() => setRulesTarget(court)}
+                          className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100"
+                        >
+                          {t("courts.hoursAndPricing")}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => startEdit(court)}
                           className="rounded-md px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600 hover:bg-emerald-50"
                         >
-                          Edit
+                          {t("common.edit")}
                         </button>
                         <button
                           type="button"
@@ -286,7 +300,7 @@ export function CourtsPage() {
                           }}
                           className="rounded-md px-2.5 py-1 text-xs font-medium text-red-600 ring-1 ring-inset ring-red-300 hover:bg-red-50"
                         >
-                          Delete
+                          {t("common.delete")}
                         </button>
                       </div>
                     </div>
@@ -300,13 +314,17 @@ export function CourtsPage() {
 
       {deleteTarget && (
         <ConfirmDialog
-          title={`Delete ${deleteTarget.name}?`}
-          message={`This permanently deletes ${deleteTarget.name} and all reservations booked on it. This can't be undone.`}
+          title={t("courts.deleteConfirmTitle", { name: deleteTarget.name })}
+          message={t("courts.deleteConfirmMessage", { name: deleteTarget.name })}
           confirming={deleting}
           error={deleteError}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {rulesTarget && (
+        <CourtRulesModal court={rulesTarget} onClose={() => setRulesTarget(null)} onChanged={() => {}} />
       )}
     </div>
   );

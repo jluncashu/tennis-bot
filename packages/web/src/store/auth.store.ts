@@ -4,6 +4,8 @@ interface Club {
   id: string;
   name: string;
   email: string;
+  defaultSlotDurationMinutes: number;
+  defaultPriceRon: number;
 }
 
 interface AuthState {

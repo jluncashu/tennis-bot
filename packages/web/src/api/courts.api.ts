@@ -1,4 +1,5 @@
 import { api } from "./api";
+import type { ApiAvailabilityRule } from "./availabilityRules.api";
 
 export interface ApiCourt {
   id: string;
@@ -9,8 +10,15 @@ export interface ApiCourt {
   createdAt: string;
 }
 
-export async function listCourts(): Promise<ApiCourt[]> {
-  const res = await api.get<ApiCourt[]>("/courts");
+// GET /courts embeds each court's availability rules (single joined query
+// server-side) so callers like the Reservations calendar don't need a
+// separate per-court request just to know a court's open hours.
+export interface ApiCourtWithRules extends ApiCourt {
+  rules: ApiAvailabilityRule[];
+}
+
+export async function listCourts(): Promise<ApiCourtWithRules[]> {
+  const res = await api.get<ApiCourtWithRules[]>("/courts");
   return res.data;
 }
 

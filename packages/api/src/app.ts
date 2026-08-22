@@ -25,7 +25,7 @@ app.use("/courts", courtsRouter);
 app.use("/contacts", contactsRouter);
 app.use("/schedule-exceptions", scheduleExceptionsRouter);
 app.use("/bookings", bookingRouter);
-app.use("/debug/availability", bookingAvailabilityRouter);
+app.use("/availability", bookingAvailabilityRouter);
 app.use(whatsappRouter);
 
 app.use(errorMiddleware);

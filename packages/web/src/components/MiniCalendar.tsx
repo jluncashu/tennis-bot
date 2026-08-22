@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import { addDays, addMonths, startOfDay, startOfMonth, startOfWeek } from "../lib/date";
 import { useCalendarStore } from "../store/calendar.store";
-
-const WEEKDAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function ChevronLeftIcon() {
   return (
@@ -32,6 +31,7 @@ function buildMonthGrid(viewMonth: Date): Date[] {
 }
 
 export function MiniCalendar() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const goToDate = useCalendarStore((s) => s.goToDate);
@@ -55,7 +55,7 @@ export function MiniCalendar() {
         <div className="flex items-center gap-0.5">
           <button
             type="button"
-            aria-label="Previous month"
+            aria-label={t("miniCalendar.previousMonth")}
             onClick={() => setViewMonth((m) => addMonths(m, -1))}
             className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
@@ -63,7 +63,7 @@ export function MiniCalendar() {
           </button>
           <button
             type="button"
-            aria-label="Next month"
+            aria-label={t("miniCalendar.nextMonth")}
             onClick={() => setViewMonth((m) => addMonths(m, 1))}
             className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
@@ -73,8 +73,8 @@ export function MiniCalendar() {
       </div>
 
       <div className="grid grid-cols-7 gap-y-1 text-center">
-        {WEEKDAY_LABELS.map((label) => (
-          <span key={label} className="text-[10px] font-medium text-slate-400">
+        {(t("common.weekdaysMin", { returnObjects: true }) as string[]).map((label, i) => (
+          <span key={i} className="text-[10px] font-medium text-slate-400">
             {label}
           </span>
         ))}

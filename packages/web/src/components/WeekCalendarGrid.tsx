@@ -1,5 +1,6 @@
 import dayjs from "dayjs";
-import type { Reservation } from "../mocks/reservations.mock";
+import { useTranslation } from "react-i18next";
+import type { Reservation } from "../types/reservation";
 import type { ApiCourt } from "../api/courts.api";
 import { courtColorFrom, type CourtColor } from "../lib/courtColors";
 
@@ -212,6 +213,7 @@ export function WeekCalendarGrid({
   onSlotClick,
   onEventClick,
 }: WeekCalendarGridProps) {
+  const { t } = useTranslation();
   const byCourt = days.length === 1;
   const today = dayjs().startOf("day");
   const courtOrder = Array.from(courtColors.keys());
@@ -221,7 +223,7 @@ export function WeekCalendarGrid({
         key: c.name,
         date: days[0],
         court: c.name,
-        headerTop: c.covered ? "Covered" : "Outdoor",
+        headerTop: c.covered ? t("common.covered") : t("courts.outdoor"),
         headerMain: c.name,
       }))
     : days.map((d) => ({
@@ -390,7 +392,10 @@ export function WeekCalendarGrid({
                     {slivers.map(({ reservation, top, height, left, width }) => (
                       <div
                         key={reservation.id}
-                        title={`Cancelled — ${reservation.customerName} · ${formatEventTime(reservation.startHour)}`}
+                        title={t("weekCalendar.cancelledPrefix", {
+                          name: reservation.customerName,
+                          time: formatEventTime(reservation.startHour),
+                        })}
                         className="absolute w-1.5 rounded-full bg-slate-300 opacity-70"
                         style={{ top, height, left: `calc(${left}% + ${width}% - 6px)` }}
                       />

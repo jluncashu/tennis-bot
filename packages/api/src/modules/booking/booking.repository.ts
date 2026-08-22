@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, gte, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, gte, lte, inArray } from "drizzle-orm";
 import { db } from "../../config/db";
 import { bookings, Booking, NewBooking } from "./booking.schema";
 import { courts } from "../courts/courts.schema";
@@ -10,7 +10,11 @@ export interface BookingWithDetails extends Booking {
   customerPhone: string;
 }
 
-export async function findBookingsForClub(clubId: string): Promise<BookingWithDetails[]> {
+export async function findBookingsForClub(clubId: string, from?: string, to?: string): Promise<BookingWithDetails[]> {
+  const conditions = [eq(courts.clubId, clubId)];
+  if (from) conditions.push(gte(bookings.date, from));
+  if (to) conditions.push(lte(bookings.date, to));
+
   const rows = await db
     .select({
       booking: bookings,
@@ -21,7 +25,7 @@ export async function findBookingsForClub(clubId: string): Promise<BookingWithDe
     .from(bookings)
     .innerJoin(courts, eq(bookings.courtId, courts.id))
     .innerJoin(contacts, eq(bookings.customerId, contacts.id))
-    .where(eq(courts.clubId, clubId));
+    .where(and(...conditions));
   return rows.map((r) => ({ ...r.booking, courtName: r.courtName, customerName: r.customerName, customerPhone: r.customerPhone }));
 }
 

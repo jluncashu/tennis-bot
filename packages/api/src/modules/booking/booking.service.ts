@@ -2,7 +2,7 @@ import { getCourt, listCourts } from "../courts/courts.service";
 import { isRangeAvailable, todayInTimezone, dayOfWeek } from "../booking-availability/booking-availability.service";
 import { findOrCreateContact } from "../contacts/contacts.service";
 import { findClubById } from "../auth/auth.repository";
-import { findRulesByCourt } from "../availability-rules/availability-rules.repository";
+import { getEffectivePrice } from "../price-rules/price-rules.service";
 import {
   findBookingsForClub,
   findBookingById,
@@ -18,8 +18,8 @@ import { emitBookingsChanged } from "../../services/booking-events.service";
 
 const UNIQUE_VIOLATION = "23505"; // Postgres error code
 
-export async function listBookingsForClub(clubId: string) {
-  return findBookingsForClub(clubId);
+export async function listBookingsForClub(clubId: string, from?: string, to?: string) {
+  return findBookingsForClub(clubId, from, to);
 }
 
 export async function listBookingsForContactInClub(clubId: string, customerId: string) {
@@ -30,14 +30,13 @@ export async function exportDailyGrid(clubId: string, date: string) {
   const club = await findClubById(clubId);
   if (!club) throw httpError(404, "Club not found");
 
-  const clubCourts = await listCourts(clubId); // stable, dashboard-matching order
+  const clubCourts = await listCourts(clubId); // stable, dashboard-matching order; rules already embedded per court
   const dow = dayOfWeek(date);
 
-  const rulesByCourt = await Promise.all(clubCourts.map((c) => findRulesByCourt(c.id)));
   const openRulesByCourtId = new Map<string, GridWindow[]>(
-    clubCourts.map((c, i) => [
+    clubCourts.map((c) => [
       c.id,
-      rulesByCourt[i].filter((r) => r.dayOfWeek === dow).map((r) => ({ startTime: r.startTime, endTime: r.endTime })),
+      c.rules.filter((r) => r.dayOfWeek === dow).map((r) => ({ startTime: r.startTime, endTime: r.endTime })),
     ])
   );
 
@@ -76,7 +75,11 @@ export async function createBookingForCustomer(
   const available = await isRangeAvailable(clubId, courtId, date, startTime, endTime);
   if (!available) throw httpError(409, "Slot no longer available");
 
+  const club = await findClubById(clubId);
+  if (!club) throw httpError(404, "Club not found");
+
   const contact = await findOrCreateContact(phone, name);
+  const priceRon = await getEffectivePrice(courtId, date, startTime, club.defaultPriceRon);
 
   try {
     const booking = await createBooking({
@@ -86,6 +89,7 @@ export async function createBookingForCustomer(
       startTime,
       endTime,
       status: "confirmed",
+      priceRon,
     });
     emitBookingsChanged(clubId);
     return booking;
@@ -112,7 +116,11 @@ export async function createManualBooking(
 ) {
   await getCourt(courtId, clubId); // throws 404 if not this club's court
 
+  const club = await findClubById(clubId);
+  if (!club) throw httpError(404, "Club not found");
+
   const contact = await findOrCreateContact(phone, name);
+  const priceRon = await getEffectivePrice(courtId, date, startTime, club.defaultPriceRon);
 
   try {
     const booking = await createBooking({
@@ -122,6 +130,7 @@ export async function createManualBooking(
       startTime,
       endTime,
       status: "confirmed",
+      priceRon,
     });
     emitBookingsChanged(clubId);
     return booking;

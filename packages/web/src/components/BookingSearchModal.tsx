@@ -1,33 +1,17 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import dayjs from "dayjs";
-import {
-  searchAvailability,
-  type AvailabilitySlot,
-  type CourtTypeFilter,
-  type LongTermOpportunity,
-} from "../mocks/availability.mock";
-import { addManualBooking } from "../mocks/reservations.mock";
-import type { CourtSettings } from "../mocks/settings.mock";
+import { useTranslation } from "react-i18next";
+import { searchAvailability, createBooking, type SearchSlot, type SearchLongTermOpportunity } from "../api/bookings.api";
+import { getErrorMessage } from "../api/auth.api";
+import type { ApiCourt } from "../api/courts.api";
 import { WeekdayPicker } from "./WeekdayPicker";
-
-interface QuickBookContext {
-  date: string; // YYYY-MM-DD, the exact clicked date — not a weekday pattern
-  startHour: number;
-  courtName: string;
-  // How far the duration can extend before it would run into the next
-  // reservation on this court/date (or closing time).
-  maxDurationMinutes: number;
-}
+import { isValidPhone, normalizePhone } from "../lib/phone";
 
 interface BookingSearchModalProps {
   open: boolean;
   onClose: () => void;
-  settings: CourtSettings;
+  courts: ApiCourt[];
   onBooked: () => void;
-  // Set when opened by clicking an empty calendar slot: date, start time,
-  // and field are already known, so the modal skips search entirely and
-  // goes straight to booking that exact slot — only duration is editable.
-  quickBook?: QuickBookContext | null;
 }
 
 const DURATIONS = [30, 60, 90, 120, 150, 180];
@@ -40,58 +24,40 @@ function formatDuration(minutes: number): string {
   return `${h}h ${m}m`;
 }
 
-function formatHour(hour: number): string {
-  return `${hour.toString().padStart(2, "0")}:00`;
-}
+type Step = "search" | "confirm" | "done";
+type BookingTarget = { kind: "single"; slot: SearchSlot } | { kind: "long-term"; opportunity: SearchLongTermOpportunity };
 
-type Step = "search" | "confirm" | "quick";
-type BookingTarget = { kind: "single"; slot: AvailabilitySlot } | { kind: "long-term"; opportunity: LongTermOpportunity };
-
-export function BookingSearchModal({ open, onClose, settings, onBooked, quickBook = null }: BookingSearchModalProps) {
-  const quickCourt = quickBook ? settings.courts.find((c) => c.name === quickBook.courtName) : undefined;
-
-  // Only durations that actually fit before the next reservation (or
-  // closing time) are offered — always includes at least the max itself.
-  const quickDurationOptions = useMemo(() => {
-    if (!quickBook) return DURATIONS;
-    const opts = DURATIONS.filter((d) => d <= quickBook.maxDurationMinutes);
-    return opts.length > 0 ? opts : [quickBook.maxDurationMinutes];
-  }, [quickBook]);
-
+export function BookingSearchModal({ open, onClose, courts, onBooked }: BookingSearchModalProps) {
+  const { t } = useTranslation();
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([]);
-  const [startHour, setStartHour] = useState(settings.openHour);
-  const [durationMinutes, setDurationMinutes] = useState(() =>
-    quickBook ? quickDurationOptions[quickDurationOptions.length - 1] : 60
-  );
-  const [courtType, setCourtType] = useState<Set<Exclude<CourtTypeFilter, "any">>>(new Set());
-  const [courtName, setCourtName] = useState<string | null>(null);
+  const [startTime, setStartTime] = useState("09:00");
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [courtType, setCourtType] = useState<Set<"covered" | "uncovered">>(new Set());
+  const [courtId, setCourtId] = useState<string | null>(null);
 
   const [hasSearched, setHasSearched] = useState(false);
-  const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
-  const [longTerm, setLongTerm] = useState<LongTermOpportunity | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [slots, setSlots] = useState<SearchSlot[]>([]);
+  const [longTerm, setLongTerm] = useState<SearchLongTermOpportunity | null>(null);
 
-  const [step, setStep] = useState<Step>(quickBook ? "quick" : "search");
+  const [step, setStep] = useState<Step>("search");
   const [target, setTarget] = useState<BookingTarget | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [booked, setBooked] = useState(false);
-
-  const startHourOptions = useMemo(() => {
-    const options: number[] = [];
-    for (let h = settings.openHour; h + durationMinutes / 60 <= settings.closeHour; h++) {
-      options.push(h);
-    }
-    return options;
-  }, [settings.openHour, settings.closeHour, durationMinutes]);
+  const [booking, setBooking] = useState(false);
+  const [bookError, setBookError] = useState<string | null>(null);
+  const [bookedSummary, setBookedSummary] = useState<string | null>(null);
 
   if (!open) return null;
 
   function resetAndClose() {
-    setStep(quickBook ? "quick" : "search");
+    setStep("search");
     setTarget(null);
     setCustomerName("");
     setCustomerPhone("");
-    setBooked(false);
+    setBookedSummary(null);
+    setBookError(null);
     setHasSearched(false);
     setSlots([]);
     setLongTerm(null);
@@ -102,7 +68,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
     setDaysOfWeek((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   }
 
-  function toggleCourtType(type: Exclude<CourtTypeFilter, "any">) {
+  function toggleCourtType(type: "covered" | "uncovered") {
     setCourtType((prev) => {
       const next = new Set(prev);
       if (next.has(type)) next.delete(type);
@@ -111,66 +77,102 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
     });
   }
 
-  function handleSearch() {
-    const effectiveType: CourtTypeFilter =
-      courtType.size === 1 ? (courtType.values().next().value as CourtTypeFilter) : "any";
-    const result = searchAvailability(
-      { daysOfWeek, startHour, durationMinutes, courtType: effectiveType, courtName },
-      settings
-    );
-    setSlots(result.slots);
-    setLongTerm(result.longTerm);
-    setHasSearched(true);
+  async function handleSearch() {
+    const effectiveType = courtType.size === 1 ? (courtType.values().next().value as "covered" | "uncovered") : "any";
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const result = await searchAvailability({
+        daysOfWeek,
+        startTime,
+        durationMinutes,
+        courtType: effectiveType,
+        courtId: courtId ?? undefined,
+      });
+      setSlots(result.slots);
+      setLongTerm(result.longTerm);
+      setHasSearched(true);
+    } catch (err) {
+      setSearchError(getErrorMessage(err));
+    } finally {
+      setSearching(false);
+    }
   }
 
   function startBooking(t: BookingTarget) {
     setTarget(t);
+    setBookError(null);
     setStep("confirm");
   }
 
-  function confirmBooking() {
+  async function confirmBooking() {
     if (!target || !customerName.trim() || !customerPhone.trim()) return;
-
-    if (target.kind === "single") {
-      const { slot } = target;
-      addManualBooking({
-        date: slot.date,
-        startHour: slot.startHour,
-        durationMinutes: slot.durationMinutes,
-        court: slot.court.name,
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
-      });
-    } else {
-      const { opportunity } = target;
-      for (const date of opportunity.dates) {
-        addManualBooking({
-          date,
-          startHour: opportunity.startHour,
-          durationMinutes: opportunity.durationMinutes,
-          court: opportunity.court.name,
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim(),
-        });
-      }
+    if (!isValidPhone(customerPhone)) {
+      setBookError(t("bookingSearch.invalidPhone"));
+      return;
     }
 
-    setBooked(true);
-    onBooked();
-  }
-
-  function confirmQuickBook() {
-    if (!quickBook || !customerName.trim() || !customerPhone.trim()) return;
-    addManualBooking({
-      date: quickBook.date,
-      startHour: quickBook.startHour,
-      durationMinutes,
-      court: quickBook.courtName,
-      customerName: customerName.trim(),
-      customerPhone: customerPhone.trim(),
-    });
-    setBooked(true);
-    onBooked();
+    const phone = normalizePhone(customerPhone);
+    setBooking(true);
+    setBookError(null);
+    try {
+      if (target.kind === "single") {
+        const { slot } = target;
+        await createBooking({
+          courtId: slot.courtId,
+          date: slot.date,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          customerName: customerName.trim(),
+          customerPhone: phone,
+        });
+        setBookedSummary(
+          t("bookingSearch.bookedSingle", {
+            court: slot.courtName,
+            name: customerName.trim(),
+            date: dayjs(slot.date).format("DD MMM"),
+            time: slot.startTime,
+          })
+        );
+      } else {
+        const { opportunity } = target;
+        const results = await Promise.allSettled(
+          opportunity.dates.map((date) =>
+            createBooking({
+              courtId: opportunity.courtId,
+              date,
+              startTime: opportunity.startTime,
+              endTime: opportunity.endTime,
+              customerName: customerName.trim(),
+              customerPhone: phone,
+            })
+          )
+        );
+        const succeeded = results.filter((r) => r.status === "fulfilled").length;
+        const failed = results.length - succeeded;
+        setBookedSummary(
+          failed === 0
+            ? t("bookingSearch.bookedLongTermAll", {
+                court: opportunity.courtName,
+                name: customerName.trim(),
+                weekday: dayjs().day(opportunity.weekday).format("dddd"),
+                weeks: succeeded,
+              })
+            : t("bookingSearch.bookedLongTermPartial", {
+                succeeded,
+                total: results.length,
+                name: customerName.trim(),
+                failed,
+              })
+        );
+      }
+      setStep("done");
+      onBooked();
+    } catch (err) {
+      setBookError(getErrorMessage(err));
+    } finally {
+      setBooking(false);
+    }
   }
 
   return (
@@ -178,140 +180,44 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">
-            {booked
-              ? "Booked"
-              : step === "search"
-                ? "Find a reservation"
-                : step === "quick"
-                  ? "Book slot"
-                  : "Confirm booking"}
+            {step === "done" ? t("bookingSearch.titleDone") : step === "search" ? t("bookingSearch.titleSearch") : t("bookingSearch.titleConfirm")}
           </h2>
           <button
             type="button"
             onClick={resetAndClose}
-            aria-label="Close"
+            aria-label={t("common.close")}
             className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
             ✕
           </button>
         </div>
 
-        {step === "quick" && quickBook && !booked && (
-          <div className="space-y-4 px-6 py-5">
-            <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">
-                {quickBook.courtName}
-                {quickCourt ? ` (${quickCourt.covered ? "covered" : "uncovered"})` : ""}
-              </p>
-              <p>
-                {dayjs(quickBook.date).format("dddd, DD MMM YYYY")} · from {formatHour(quickBook.startHour)}
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="quickDuration" className="block text-sm font-medium text-slate-700">
-                Duration
-              </label>
-              <select
-                id="quickDuration"
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              >
-                {quickDurationOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {formatDuration(m)}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-slate-500">
-                Free until {formatHour(quickBook.startHour + quickBook.maxDurationMinutes / 60)}.
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="quickCustomerName" className="block text-sm font-medium text-slate-700">
-                Customer name
-              </label>
-              <input
-                id="quickCustomerName"
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-            <div>
-              <label htmlFor="quickCustomerPhone" className="block text-sm font-medium text-slate-700">
-                Customer phone
-              </label>
-              <input
-                id="quickCustomerPhone"
-                type="tel"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={confirmQuickBook}
-              disabled={!customerName.trim() || !customerPhone.trim()}
-              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Book
-            </button>
-          </div>
-        )}
-
-        {step === "quick" && quickBook && booked && (
-          <div className="space-y-4 px-6 py-5">
-            <p className="text-sm text-emerald-700">
-              Booked {quickBook.courtName} for {customerName} on {dayjs(quickBook.date).format("DD MMM")} at{" "}
-              {formatHour(quickBook.startHour)} ({formatDuration(durationMinutes)}).
-            </p>
-            <button
-              type="button"
-              onClick={resetAndClose}
-              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Done
-            </button>
-          </div>
-        )}
-
         {step === "search" && (
           <div className="space-y-5 px-6 py-5">
             <div>
-              <span className="block text-sm font-medium text-slate-700">Days of the week</span>
+              <span className="block text-sm font-medium text-slate-700">{t("bookingSearch.daysOfWeek")}</span>
               <div className="mt-2">
                 <WeekdayPicker selected={daysOfWeek} onToggle={toggleDay} />
               </div>
-              <p className="mt-1 text-xs text-slate-500">None selected searches every day.</p>
+              <p className="mt-1 text-xs text-slate-500">{t("bookingSearch.daysHint")}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="startHour" className="block text-sm font-medium text-slate-700">
-                  Start time
+                <label htmlFor="startTime" className="block text-sm font-medium text-slate-700">
+                  {t("bookingSearch.startTime")}
                 </label>
-                <select
-                  id="startHour"
-                  value={startHour}
-                  onChange={(e) => setStartHour(Number(e.target.value))}
+                <input
+                  id="startTime"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                >
-                  {startHourOptions.map((h) => (
-                    <option key={h} value={h}>
-                      {formatHour(h)}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <div>
                 <label htmlFor="duration" className="block text-sm font-medium text-slate-700">
-                  Duration
+                  {t("bookingSearch.duration")}
                 </label>
                 <select
                   id="duration"
@@ -329,7 +235,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
             </div>
 
             <div>
-              <span className="block text-sm font-medium text-slate-700">Field type</span>
+              <span className="block text-sm font-medium text-slate-700">{t("bookingSearch.courtType")}</span>
               <div className="mt-2 flex gap-1.5">
                 <button
                   type="button"
@@ -340,7 +246,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
                       : "text-slate-600 ring-slate-300 hover:bg-slate-100"
                   }`}
                 >
-                  Covered
+                  {t("common.covered")}
                 </button>
                 <button
                   type="button"
@@ -351,26 +257,26 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
                       : "text-slate-600 ring-slate-300 hover:bg-slate-100"
                   }`}
                 >
-                  Uncovered
+                  {t("common.uncovered")}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-500">Neither selected searches both types.</p>
+              <p className="mt-1 text-xs text-slate-500">{t("bookingSearch.courtTypeHint")}</p>
             </div>
 
             <div>
-              <label htmlFor="courtName" className="block text-sm font-medium text-slate-700">
-                Field number
+              <label htmlFor="courtId" className="block text-sm font-medium text-slate-700">
+                {t("bookingSearch.court")}
               </label>
               <select
-                id="courtName"
-                value={courtName ?? ""}
-                onChange={(e) => setCourtName(e.target.value === "" ? null : e.target.value)}
+                id="courtId"
+                value={courtId ?? ""}
+                onChange={(e) => setCourtId(e.target.value === "" ? null : e.target.value)}
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
-                <option value="">Any field</option>
-                {settings.courts.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name} ({c.covered ? "covered" : "uncovered"})
+                <option value="">{t("bookingSearch.anyCourt")}</option>
+                {courts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.covered ? t("common.covered").toLowerCase() : t("common.uncovered").toLowerCase()})
                   </option>
                 ))}
               </select>
@@ -379,15 +285,20 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
             <button
               type="button"
               onClick={handleSearch}
-              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              disabled={searching}
+              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Search
+              {searching ? t("common.searching") : t("common.search")}
             </button>
 
-            {hasSearched && (
+            {searchError && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">{searchError}</p>
+            )}
+
+            {hasSearched && !searchError && (
               <div className="border-t border-slate-200 pt-4">
                 {slots.length === 0 && !longTerm && (
-                  <p className="text-sm text-slate-500">No availability found for these filters.</p>
+                  <p className="text-sm text-slate-500">{t("bookingSearch.noAvailability")}</p>
                 )}
 
                 <ul className="space-y-2">
@@ -396,15 +307,22 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <span className="inline-block rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">
-                            Long-term opportunity
+                            {t("bookingSearch.longTermBadge")}
                           </span>
                           <p className="mt-1.5 text-sm font-semibold text-slate-900">
-                            {longTerm.court.name} · every {dayjs().day(longTerm.weekday).format("dddd")},{" "}
-                            {formatHour(longTerm.startHour)}–{formatHour(longTerm.startHour + longTerm.durationMinutes / 60)}
+                            {t("bookingSearch.longTermLine", {
+                              court: longTerm.courtName,
+                              weekday: dayjs().day(longTerm.weekday).format("dddd"),
+                              start: longTerm.startTime,
+                              end: longTerm.endTime,
+                            })}
                           </p>
                           <p className="text-xs text-slate-600">
-                            Free for the next {longTerm.dates.length} weeks ({dayjs(longTerm.dates[0]).format("DD MMM")} –{" "}
-                            {dayjs(longTerm.dates[longTerm.dates.length - 1]).format("DD MMM")})
+                            {t("bookingSearch.longTermFree", {
+                              weeks: longTerm.dates.length,
+                              from: dayjs(longTerm.dates[0]).format("DD MMM"),
+                              to: dayjs(longTerm.dates[longTerm.dates.length - 1]).format("DD MMM"),
+                            })}
                           </p>
                         </div>
                         <button
@@ -412,7 +330,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
                           onClick={() => startBooking({ kind: "long-term", opportunity: longTerm })}
                           className="shrink-0 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
                         >
-                          Book
+                          {t("bookingSearch.book")}
                         </button>
                       </div>
                     </li>
@@ -420,16 +338,15 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
 
                   {slots.map((slot) => (
                     <li
-                      key={slot.id}
+                      key={`${slot.date}_${slot.courtId}_${slot.startTime}`}
                       className="flex items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
                     >
                       <div>
                         <p className="text-sm font-semibold text-slate-900">
-                          {dayjs(slot.date).format("dddd, DD MMM")} · {formatHour(slot.startHour)}–
-                          {formatHour(slot.startHour + slot.durationMinutes / 60)}
+                          {dayjs(slot.date).format("dddd, DD MMM")} · {slot.startTime}–{slot.endTime}
                         </p>
                         <p className="text-xs text-slate-600">
-                          {slot.court.name} ({slot.court.covered ? "covered" : "uncovered"})
+                          {slot.courtName} ({slot.covered ? t("common.covered").toLowerCase() : t("common.uncovered").toLowerCase()})
                         </p>
                       </div>
                       <button
@@ -437,7 +354,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
                         onClick={() => startBooking({ kind: "single", slot })}
                         className="shrink-0 rounded-md px-3 py-1.5 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600 hover:bg-emerald-50"
                       >
-                        Book
+                        {t("bookingSearch.book")}
                       </button>
                     </li>
                   ))}
@@ -447,28 +364,35 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
           </div>
         )}
 
-        {step === "confirm" && target && !booked && (
+        {step === "confirm" && target && (
           <div className="space-y-4 px-6 py-5">
             <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">
               {target.kind === "single" ? (
                 <p>
-                  {target.slot.court.name} · {dayjs(target.slot.date).format("dddd, DD MMM")} ·{" "}
-                  {formatHour(target.slot.startHour)}–{formatHour(target.slot.startHour + target.slot.durationMinutes / 60)}
+                  {t("bookingSearch.confirmSingle", {
+                    court: target.slot.courtName,
+                    date: dayjs(target.slot.date).format("dddd, DD MMM"),
+                    start: target.slot.startTime,
+                    end: target.slot.endTime,
+                  })}
                 </p>
               ) : (
                 <p>
-                  {target.opportunity.court.name} · every {dayjs().day(target.opportunity.weekday).format("dddd")},{" "}
-                  {formatHour(target.opportunity.startHour)}–
-                  {formatHour(target.opportunity.startHour + target.opportunity.durationMinutes / 60)} ·{" "}
-                  {target.opportunity.dates.length} weeks starting{" "}
-                  {dayjs(target.opportunity.dates[0]).format("DD MMM")}
+                  {t("bookingSearch.confirmLongTerm", {
+                    court: target.opportunity.courtName,
+                    weekday: dayjs().day(target.opportunity.weekday).format("dddd"),
+                    start: target.opportunity.startTime,
+                    end: target.opportunity.endTime,
+                    weeks: target.opportunity.dates.length,
+                    date: dayjs(target.opportunity.dates[0]).format("DD MMM"),
+                  })}
                 </p>
               )}
             </div>
 
             <div>
               <label htmlFor="customerName" className="block text-sm font-medium text-slate-700">
-                Customer name
+                {t("bookingSearch.customerName")}
               </label>
               <input
                 id="customerName"
@@ -480,7 +404,7 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
             </div>
             <div>
               <label htmlFor="customerPhone" className="block text-sm font-medium text-slate-700">
-                Customer phone
+                {t("bookingSearch.customerPhone")}
               </label>
               <input
                 id="customerPhone"
@@ -489,41 +413,47 @@ export function BookingSearchModal({ open, onClose, settings, onBooked, quickBoo
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
+              {customerPhone.trim().length > 0 && !isValidPhone(customerPhone) && (
+                <p className="mt-1 text-xs text-red-600">{t("bookingSearch.phoneHint")}</p>
+              )}
             </div>
+
+            {bookError && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
+                {t("bookingSearch.bookErrorPrefix", { error: bookError })}
+              </p>
+            )}
 
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setStep("search")}
-                className="flex-1 rounded-md px-4 py-2 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100"
+                disabled={booking}
+                className="flex-1 rounded-md px-4 py-2 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-100 disabled:opacity-60"
               >
-                Back
+                {t("common.back")}
               </button>
               <button
                 type="button"
                 onClick={confirmBooking}
-                disabled={!customerName.trim() || !customerPhone.trim()}
+                disabled={!customerName.trim() || !isValidPhone(customerPhone) || booking}
                 className="flex-1 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Confirm booking
+                {booking ? t("bookingSearch.booking") : t("bookingSearch.confirmBooking")}
               </button>
             </div>
           </div>
         )}
 
-        {step === "confirm" && target && booked && (
+        {step === "done" && bookedSummary && (
           <div className="space-y-4 px-6 py-5">
-            <p className="text-sm text-emerald-700">
-              {target.kind === "single"
-                ? `Booked ${target.slot.court.name} for ${customerName} on ${dayjs(target.slot.date).format("DD MMM")} at ${formatHour(target.slot.startHour)}.`
-                : `Booked ${target.opportunity.court.name} for ${customerName}, every ${dayjs().day(target.opportunity.weekday).format("dddd")} for ${target.opportunity.dates.length} weeks.`}
-            </p>
+            <p className="text-sm text-emerald-700">{bookedSummary}</p>
             <button
               type="button"
               onClick={resetAndClose}
               className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
             >
-              Done
+              {t("common.done")}
             </button>
           </div>
         )}

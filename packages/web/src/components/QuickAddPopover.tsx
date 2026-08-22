@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import dayjs from "dayjs";
+import { useTranslation } from "react-i18next";
+import PhoneInputWithCountry, { isValidPhoneNumber } from "react-phone-number-input";
 import { createBooking } from "../api/bookings.api";
 import { getErrorMessage } from "../api/auth.api";
 import type { ApiCourt } from "../api/courts.api";
@@ -40,11 +42,12 @@ export function QuickAddPopover({
   onClose,
   onBooked,
 }: QuickAddPopoverProps) {
+  const { t } = useTranslation();
   const start = toHourMinute(minuteOfDay);
   const end = toHourMinute(minuteOfDay + slotDurationMinutes);
 
   const [title, setTitle] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState<string | undefined>(undefined);
   const [courtId, setCourtId] = useState(
     courts.find((c) => c.name === initialCourt)?.id ?? courts[0]?.id ?? ""
   );
@@ -71,10 +74,11 @@ export function QuickAddPopover({
     const [eh, em] = endTime.split(":").map(Number);
     const durationMinutes = eh * 60 + em - (sh * 60 + sm);
 
-    if (!title.trim()) return setError("Add a customer name.");
-    if (!phone.trim()) return setError("Add a phone number.");
-    if (!courtId) return setError("Add a court first.");
-    if (durationMinutes <= 0) return setError("End time must be after start time.");
+    if (!title.trim()) return setError(t("quickAdd.nameRequired"));
+    if (!phone) return setError(t("quickAdd.phoneRequired"));
+    if (!isValidPhoneNumber(phone)) return setError(t("quickAdd.invalidPhone"));
+    if (!courtId) return setError(t("quickAdd.courtRequired"));
+    if (durationMinutes <= 0) return setError(t("quickAdd.endAfterStart"));
 
     setSaving(true);
     setError(null);
@@ -85,7 +89,7 @@ export function QuickAddPopover({
         startTime,
         endTime,
         customerName: title.trim(),
-        customerPhone: phone.trim(),
+        customerPhone: phone,
       });
       onBooked();
       onClose();
@@ -111,13 +115,13 @@ export function QuickAddPopover({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="New event title"
+          placeholder={t("quickAdd.titlePlaceholder")}
           className="w-full border-none p-0 text-base font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
         />
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t("common.close")}
           className="ml-2 shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
         >
           ✕
@@ -157,7 +161,7 @@ export function QuickAddPopover({
           >
             {courts.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} ({c.covered ? "covered" : "uncovered"})
+                {c.name} ({c.covered ? t("common.covered").toLowerCase() : t("common.uncovered").toLowerCase()})
               </option>
             ))}
           </select>
@@ -165,12 +169,12 @@ export function QuickAddPopover({
 
         <div className="flex items-center gap-2 text-sm text-slate-600">
           <PhoneIcon />
-          <input
-            type="tel"
+          <PhoneInputWithCountry
+            defaultCountry="RO"
+            international
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Customer phone"
-            className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            onChange={setPhone}
+            placeholder={t("quickAdd.phonePlaceholder")}
           />
         </div>
 
@@ -184,7 +188,7 @@ export function QuickAddPopover({
           disabled={saving}
           className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
         >
-          Cancel
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -192,7 +196,7 @@ export function QuickAddPopover({
           disabled={saving}
           className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("common.saving") : t("common.save")}
         </button>
       </div>
     </div>

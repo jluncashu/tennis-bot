@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Field } from "../components/Field";
 import { getErrorMessage, loginApi, registerApi } from "../api/auth.api";
 import { useAuthStore } from "../store/auth.store";
@@ -7,6 +8,7 @@ import { useAuthStore } from "../store/auth.store";
 type Mode = "login" | "register";
 
 export function LoginPage() {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -51,27 +53,25 @@ export function LoginPage() {
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-slate-900">
           {isRegister ? (
-            <>Create <em className="text-emerald-600 not-italic">account.</em></>
+            <>{t("auth.createPart1")} <em className="text-emerald-600 not-italic">{t("auth.createPart2")}</em></>
           ) : (
-            <>Welcome <em className="text-emerald-600 not-italic">back.</em></>
+            <>{t("auth.welcomePart1")} <em className="text-emerald-600 not-italic">{t("auth.welcomePart2")}</em></>
           )}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          {isRegister
-            ? "Set up your club in seconds."
-            : "Sign in to manage reservations and settings."}
+          {isRegister ? t("auth.registerSubtitle") : t("auth.loginSubtitle")}
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           {isRegister && (
             <Field
-              label="Club name"
+              label={t("auth.clubName")}
               type="text"
               name="name"
               autoComplete="organization"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Central Tennis Club"
+              placeholder={t("auth.clubNamePlaceholder")}
               icon={
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="1.7">
@@ -83,13 +83,13 @@ export function LoginPage() {
           )}
 
           <Field
-            label="Email"
+            label={t("auth.email")}
             type="email"
             name="email"
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@club.com"
+            placeholder={t("auth.emailPlaceholder")}
             icon={
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" strokeWidth="1.7">
@@ -100,7 +100,7 @@ export function LoginPage() {
           />
 
           <Field
-            label="Password"
+            label={t("auth.password")}
             type="password"
             name="password"
             autoComplete={isRegister ? "new-password" : "current-password"}
@@ -124,10 +124,10 @@ export function LoginPage() {
             className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading
-              ? "Please wait..."
+              ? t("auth.pleaseWait")
               : isRegister
-                ? "Create account"
-                : "Sign in"}
+                ? t("auth.createAccount")
+                : t("auth.signIn")}
 
             {!loading && (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -139,13 +139,13 @@ export function LoginPage() {
         </form>
 
         <div className="mt-4 text-center text-sm text-slate-500">
-          {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
+          {isRegister ? t("auth.alreadyHaveAccount") : t("auth.noAccount")}{" "}
           <button
             type="button"
             onClick={switchMode}
             className="font-medium text-emerald-600 hover:text-emerald-700"
           >
-            {isRegister ? "Sign in" : "Register"}
+            {isRegister ? t("auth.signIn") : t("auth.register")}
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
+import { useTranslation } from "react-i18next";
 import { listContactBookings, type ApiContact, type ApiContactBooking } from "../api/contacts.api";
 import { getErrorMessage } from "../api/auth.api";
 
@@ -13,6 +14,7 @@ function formatTimeRange(startTime: string, endTime: string): string {
 }
 
 export function CustomerDetailModal({ contact, onClose }: CustomerDetailModalProps) {
+  const { t } = useTranslation();
   const [bookings, setBookings] = useState<ApiContactBooking[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,7 +34,7 @@ export function CustomerDetailModal({ contact, onClose }: CustomerDetailModalPro
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common.close")}
             className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
             ✕
@@ -42,22 +44,22 @@ export function CustomerDetailModal({ contact, onClose }: CustomerDetailModalPro
         <div className="space-y-4 px-6 py-5">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <span className="block text-sm font-medium text-slate-700">Phone</span>
+              <span className="block text-sm font-medium text-slate-700">{t("customerDetail.phone")}</span>
               <p className="mt-1 text-sm text-slate-900">{contact.phone}</p>
             </div>
             <div>
-              <span className="block text-sm font-medium text-slate-700">Customer since</span>
+              <span className="block text-sm font-medium text-slate-700">{t("customerDetail.customerSince")}</span>
               <p className="mt-1 text-sm text-slate-900">{dayjs(contact.createdAt).format("MMM D, YYYY")}</p>
             </div>
           </div>
 
           <div>
-            <span className="block text-sm font-medium text-slate-700">Booking history</span>
+            <span className="block text-sm font-medium text-slate-700">{t("customerDetail.bookingHistory")}</span>
 
-            {loadError && <p className="mt-2 text-sm text-red-600">Couldn't load bookings: {loadError}</p>}
-            {!loadError && loading && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
+            {loadError && <p className="mt-2 text-sm text-red-600">{t("customerDetail.loadErrorPrefix", { error: loadError })}</p>}
+            {!loadError && loading && <p className="mt-2 text-sm text-slate-500">{t("common.loading")}</p>}
             {!loadError && !loading && bookings.length === 0 && (
-              <p className="mt-2 text-sm text-slate-500">No bookings yet.</p>
+              <p className="mt-2 text-sm text-slate-500">{t("customerDetail.noneYet")}</p>
             )}
 
             {!loadError && !loading && bookings.length > 0 && (
@@ -75,7 +77,7 @@ export function CustomerDetailModal({ contact, onClose }: CustomerDetailModalPro
                         b.status === "confirmed" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
                       }`}
                     >
-                      {b.status}
+                      {b.status === "confirmed" ? t("customerDetail.statusConfirmed") : t("customerDetail.statusCancelled")}
                     </span>
                   </li>
                 ))}

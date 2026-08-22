@@ -25,7 +25,10 @@ let refreshPromise: Promise<string> | null = null;
 function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
     refreshPromise = axios
-      .post<{ accessToken: string; club: { id: string; name: string; email: string } }>(
+      .post<{
+        accessToken: string;
+        club: { id: string; name: string; email: string; defaultSlotDurationMinutes: number; defaultPriceRon: number };
+      }>(
         "/auth/refresh",
         {},
         { baseURL: api.defaults.baseURL, withCredentials: true }

@@ -43,9 +43,11 @@ export async function register({ name, email, password }: RegisterBody) {
     accessToken:  signAccessToken(club.id, club.email),
     refreshToken: signRefreshToken(club.id, club.email),
     club: {
-      id:    club.id,
-      name:  club.name,
-      email: club.email,
+      id:                         club.id,
+      name:                       club.name,
+      email:                      club.email,
+      defaultSlotDurationMinutes: club.defaultSlotDurationMinutes,
+      defaultPriceRon:            club.defaultPriceRon,
     },
   };
 }
@@ -62,9 +64,11 @@ export async function login({ email, password }: LoginBody) {
     accessToken:  signAccessToken(club.id, club.email),
     refreshToken: signRefreshToken(club.id, club.email),
     club: {
-      id:    club.id,
-      name:  club.name,
-      email: club.email,
+      id:                         club.id,
+      name:                       club.name,
+      email:                      club.email,
+      defaultSlotDurationMinutes: club.defaultSlotDurationMinutes,
+      defaultPriceRon:            club.defaultPriceRon,
     },
   };
 }
@@ -80,9 +84,11 @@ export async function refresh(token: string) {
     accessToken:  signAccessToken(club.id, club.email),
     refreshToken: signRefreshToken(club.id, club.email),
     club: {
-      id:    club.id,
-      name:  club.name,
-      email: club.email,
+      id:                         club.id,
+      name:                       club.name,
+      email:                      club.email,
+      defaultSlotDurationMinutes: club.defaultSlotDurationMinutes,
+      defaultPriceRon:            club.defaultPriceRon,
     },
   };
 }

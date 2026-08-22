@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { LoginPage } from "./pages/LoginPage";
 import { ReservationsPage } from "./pages/ReservationsPage";
 import { CustomersPage } from "./pages/CustomersPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { CourtsPage } from "./pages/CourtsPage";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { useAuthStore } from "./store/auth.store";
@@ -41,7 +40,6 @@ export function App() {
   >
     <Route path="/reservations" element={<ReservationsPage />} />
     <Route path="/customers" element={<CustomersPage />} />
-    <Route path="/settings" element={<SettingsPage />} />
     <Route path="/settings/courts" element={<CourtsPage />} />
   </Route>
 

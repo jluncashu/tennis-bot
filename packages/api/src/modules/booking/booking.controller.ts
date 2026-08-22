@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { listBookingsForClub, cancelBookingForClub, createManualBooking, exportDailyGrid } from "./booking.service";
-import { createBookingSchema, exportBookingsQuerySchema } from "./booking.schema";
+import { createBookingSchema, exportBookingsQuerySchema, listBookingsQuerySchema } from "./booking.schema";
 import { subscribeToBookingEvents } from "../../services/booking-events.service";
 
 const SSE_HEARTBEAT_MS = 25000; // keeps idle connections (and proxies) from timing out
@@ -26,7 +26,13 @@ export function streamBookingEvents(req: Request, res: Response) {
 }
 
 export async function listBookingsController(req: Request, res: Response) {
-  const bookings = await listBookingsForClub(req.user!.id);
+  const parsed = listBookingsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const { from, to } = parsed.data;
+  const bookings = await listBookingsForClub(req.user!.id, from, to);
   res.json(bookings);
 }
 

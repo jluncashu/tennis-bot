@@ -14,11 +14,12 @@ export interface ApiBooking {
   startTime: string; // HH:MM:SS
   endTime: string; // HH:MM:SS
   status: "confirmed" | "cancelled";
+  priceRon: number | null; // null for bookings created before pricing existed
   createdAt: string;
 }
 
-export async function listBookings(): Promise<ApiBooking[]> {
-  const res = await api.get<ApiBooking[]>("/bookings");
+export async function listBookings(from?: string, to?: string): Promise<ApiBooking[]> {
+  const res = await api.get<ApiBooking[]>("/bookings", { params: { from, to } });
   return res.data;
 }
 
@@ -38,6 +39,52 @@ export async function createBooking(data: CreateBookingInput): Promise<{ id: str
 
 export async function cancelBooking(id: string): Promise<void> {
   await api.delete(`/bookings/${id}`);
+}
+
+export interface SearchAvailabilityParams {
+  daysOfWeek: number[]; // empty = every day
+  startTime: string; // HH:MM
+  durationMinutes: number;
+  courtType: "any" | "covered" | "uncovered";
+  courtId?: string;
+}
+
+export interface SearchSlot {
+  date: string; // YYYY-MM-DD
+  weekday: number;
+  courtId: string;
+  courtName: string;
+  covered: boolean;
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+}
+
+export interface SearchLongTermOpportunity {
+  courtId: string;
+  courtName: string;
+  covered: boolean;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  dates: string[];
+}
+
+export interface SearchAvailabilityResult {
+  slots: SearchSlot[];
+  longTerm: SearchLongTermOpportunity | null;
+}
+
+export async function searchAvailability(params: SearchAvailabilityParams): Promise<SearchAvailabilityResult> {
+  const res = await api.get<SearchAvailabilityResult>("/availability/search", {
+    params: {
+      daysOfWeek: params.daysOfWeek.length > 0 ? params.daysOfWeek.join(",") : undefined,
+      startTime: params.startTime,
+      durationMinutes: params.durationMinutes,
+      courtType: params.courtType,
+      courtId: params.courtId,
+    },
+  });
+  return res.data;
 }
 
 export async function exportBookings(date: string): Promise<void> {

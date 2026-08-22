@@ -1,9 +1,21 @@
-import { findCourtsByClub, findCourtById, createCourt, updateCourt, deleteCourt } from "./courts.repository";
+import { findCourtsWithRulesByClub, findCourtById, createCourt, updateCourt, deleteCourt } from "./courts.repository";
 import { httpError } from "../../shared/http-error";
+import type { Court } from "./courts.schema";
+import type { AvailabilityRule } from "../availability-rules/availability-rules.schema";
 import type { CreateCourtBody, UpdateCourtBody } from "./courts.schema";
 
-export async function listCourts(clubId: string) {
-  return findCourtsByClub(clubId);
+export interface CourtWithRules extends Court {
+  rules: AvailabilityRule[];
+}
+
+export async function listCourts(clubId: string): Promise<CourtWithRules[]> {
+  const rows = await findCourtsWithRulesByClub(clubId);
+  const byCourtId = new Map<string, CourtWithRules>();
+  for (const { court, rule } of rows) {
+    if (!byCourtId.has(court.id)) byCourtId.set(court.id, { ...court, rules: [] });
+    if (rule) byCourtId.get(court.id)!.rules.push(rule);
+  }
+  return Array.from(byCourtId.values());
 }
 
 export async function getCourt(id: string, clubId: string) {

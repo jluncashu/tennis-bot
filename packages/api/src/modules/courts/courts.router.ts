@@ -8,6 +8,7 @@ import {
   deleteCourtController,
 } from "./courts.controller";
 import { availabilityRulesRouter } from "../availability-rules/availability-rules.router";
+import { priceRulesRouter } from "../price-rules/price-rules.router";
 
 export const courtsRouter = Router();
 
@@ -19,3 +20,4 @@ courtsRouter.post("/", createCourtController);
 courtsRouter.patch("/:id", updateCourtController);
 courtsRouter.delete("/:id", deleteCourtController);
 courtsRouter.use("/:courtId/availability-rules", availabilityRulesRouter);
+courtsRouter.use("/:courtId/price-rules", priceRulesRouter);
