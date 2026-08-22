@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { listBookingsForClub, cancelBookingForClub, createManualBooking, exportDailyGrid } from "./booking.service";
 import { createBookingSchema, exportBookingsQuerySchema, listBookingsQuerySchema } from "./booking.schema";
-import { subscribeToBookingEvents } from "../../services/booking-events.service";
+import { subscribeToBookingEvents } from "./booking-events";
 
 const SSE_HEARTBEAT_MS = 25000; // keeps idle connections (and proxies) from timing out
 

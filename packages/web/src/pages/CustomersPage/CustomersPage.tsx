@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
-import { listContacts, type ApiContact } from "../api/contacts.api";
-import { getErrorMessage } from "../api/auth.api";
-import { CustomerDetailModal } from "../components/CustomerDetailModal";
+import { listContacts, type ApiContact } from "../../api/contacts.api";
+import { getErrorMessage } from "../../api/auth.api";
+import { CustomerDetailModal } from "./components/CustomerDetailModal";
 
 export function CustomersPage() {
   const { t } = useTranslation();

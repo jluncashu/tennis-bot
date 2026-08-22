@@ -1,4 +1,4 @@
-import { sendList, sendButtons, sendText } from "../../services/whatsapp.service";
+import { sendList, sendButtons, sendText } from "../whatsapp/whatsapp.service";
 import { findOrCreateContact } from "../contacts/contacts.service";
 import { getState, setState, clearState } from "../conversation-state/conversation-state.repository";
 import type { ConversationState } from "../conversation-state/conversation-state.schema";

@@ -31,5 +31,3 @@ export function Field({ label, icon, id, name, ...inputProps }: FieldProps) {
     </div>
   );
 }
-
-export default Field;

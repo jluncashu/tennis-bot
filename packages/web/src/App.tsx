@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { LoginPage } from "./pages/LoginPage";
+import { LoginPage } from "./pages/LoginPage/LoginPage";
 import { ReservationsPage } from "./pages/ReservationsPage";
-import { CustomersPage } from "./pages/CustomersPage";
+import { CustomersPage } from "./pages/CustomersPage/CustomersPage";
 import { CourtsPage } from "./pages/CourtsPage";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { useAuthStore } from "./store/auth.store";

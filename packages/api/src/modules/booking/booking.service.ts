@@ -14,7 +14,7 @@ import {
 } from "./booking.repository";
 import { buildDailyGridWorkbook, type GridBooking, type GridWindow } from "./booking-export";
 import { httpError } from "../../shared/http-error";
-import { emitBookingsChanged } from "../../services/booking-events.service";
+import { emitBookingsChanged } from "./booking-events";
 
 const UNIQUE_VIOLATION = "23505"; // Postgres error code
 

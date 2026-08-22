@@ -1,5 +1,5 @@
 import axios from "axios";
-import { env } from "../config/env";
+import { env } from "../../config/env";
 
 const GRAPH_URL = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
-import { listContactBookings, type ApiContact, type ApiContactBooking } from "../api/contacts.api";
-import { getErrorMessage } from "../api/auth.api";
+import { listContactBookings, type ApiContact, type ApiContactBooking } from "../../../api/contacts.api";
+import { getErrorMessage } from "../../../api/auth.api";
 
 interface CustomerDetailModalProps {
   contact: ApiContact;

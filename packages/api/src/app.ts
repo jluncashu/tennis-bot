@@ -9,7 +9,7 @@ import { contactsRouter } from "./modules/contacts/contacts.router";
 import { scheduleExceptionsRouter } from "./modules/schedule-exceptions/schedule-exceptions.router";
 import { bookingRouter } from "./modules/booking/booking.router";
 import { bookingAvailabilityRouter } from "./modules/booking-availability/booking-availability.router";
-import { whatsappRouter } from "./routes/whatsapp.routes";
+import { whatsappRouter } from "./modules/whatsapp/whatsapp.router";
 
 export const app = express();
 

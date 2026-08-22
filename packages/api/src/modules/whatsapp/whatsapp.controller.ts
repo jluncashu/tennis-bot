@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { env } from "../config/env";
-import { findClubByWhatsappPhoneNumberId } from "../modules/auth/auth.repository";
-import { handleIncomingMessage } from "../modules/conversation/conversation.service";
+import { env } from "../../config/env";
+import { findClubByWhatsappPhoneNumberId } from "../auth/auth.repository";
+import { handleIncomingMessage } from "../conversation/conversation.service";
 
 export function verifyWebhook(req: Request, res: Response) {
   const mode = req.query["hub.mode"];
